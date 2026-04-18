@@ -21,7 +21,7 @@ A comprehensive GUI application for image format conversion and resizing using P
 
 1. Clone this repository:
 ```bash
-git clone 
+git clone https://github.com/PWira/Image-Resolver.git
 cd ImageResolver
 ```
 
