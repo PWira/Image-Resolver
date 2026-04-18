@@ -14,7 +14,7 @@ A comprehensive GUI application for quick image format conversion and resizing u
 
 ### Application Tabs
 
-1. **Konversi** - Convert single image to different format with optional resize
+1. **Conversion** - Convert single image to different format with optional resize
 2. **Resize** - Advanced resize options (scale %, max dimensions, multiple resize modes)
 3. **Batch** - Process multiple images from a folder with consistent settings
 
@@ -52,7 +52,7 @@ python main.py
 ```
 
 2. Choose a tab based on your needs:
-   - **Konversi**: Single image conversion
+   - **Conversion**: Single image conversion
    - **Resize**: Resize with advanced options
    - **Batch**: Process multiple images
 
@@ -60,7 +60,7 @@ python main.py
 
 ## Usage
 
-### Tab 1: Konversi (Conversion)
+### Tab 1: Conversion
 - Convert a single image to a different format
 - Optional: Resize while converting
 - Adjustable quality for JPEG/WEBP/AVIF
@@ -68,8 +68,8 @@ python main.py
 
 ### Tab 2: Resize
 - Resize with multiple modes:
-  - **Proporsional (fit)**: Maintain aspect ratio
-  - **Tepat (exact)**: Force exact dimensions
+  - **Proportional (fit)**: Maintain aspect ratio
+  - **Exact**: Force exact dimensions
   - **Thumbnail (crop)**: Crop to fill dimensions
 - Scale by percentage
 - Set maximum width/height constraints
