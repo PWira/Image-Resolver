@@ -1,4 +1,4 @@
-# Image Resolver
+# QIF - Quick Image Formatting
 
 A comprehensive GUI application for quick image format conversion and resizing using Python and tkinter.
 
@@ -14,7 +14,7 @@ A comprehensive GUI application for quick image format conversion and resizing u
 
 ### Application Tabs
 
-1. **Konversi** - Convert single image to different format with optional resize
+1. **Conversion** - Convert single image to different format with optional resize
 2. **Resize** - Advanced resize options (scale %, max dimensions, multiple resize modes)
 3. **Batch** - Process multiple images from a folder with consistent settings
 4. **Crop** - Crop single image with multiple modes
@@ -31,7 +31,7 @@ A comprehensive GUI application for quick image format conversion and resizing u
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/ImageResolver.git
+git clone https://github.com/PWira/Image-Conversion.git
 cd ImageResolver
 ```
 
@@ -53,7 +53,7 @@ python main.py
 ```
 
 2. Choose a tab based on your needs:
-   - **Konversi**: Convert single image to different format with optional resize
+   - **Conversion**: Single image conversion
    - **Resize**: Resize with advanced options
    - **Batch**: Process multiple images from a folder with consistent settings
    - **Crop**: Crop single image with multiple modes
@@ -62,7 +62,7 @@ python main.py
 
 ## Usage
 
-### Tab 1: Konversi (Conversion)
+### Tab 1: Conversion
 - Convert a single image to a different format
 - Optional: Resize while converting
 - Adjustable quality for JPEG/WEBP/AVIF
@@ -70,8 +70,8 @@ python main.py
 
 ### Tab 2: Resize
 - Resize with multiple modes:
-  - **Proporsional (fit)**: Maintain aspect ratio
-  - **Tepat (exact)**: Force exact dimensions
+  - **Proportional (fit)**: Maintain aspect ratio
+  - **Exact**: Force exact dimensions
   - **Thumbnail (crop)**: Crop to fill dimensions
 - Scale by percentage
 - Set maximum width/height constraints
@@ -92,7 +92,7 @@ python main.py
 ## Project Structure
 
 ```
-ImageResolver/
+ImageConversion/
 ├── main.py                      # Entry point aplikasi
 ├── src/                         # Source code package
 │   ├── app.py                   # Main GUI application class
@@ -124,7 +124,7 @@ To create a standalone executable using PyInstaller:
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --icon=monolight.png --name="Image Resolver" --distpath="./dist" main.py
+pyinstaller --onefile --windowed --icon=monolight.png --name="Image Conversion" --distpath="./dist" main.py
 ```
 
 The executable will be available in `./dist/` folder.
