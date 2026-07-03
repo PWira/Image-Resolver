@@ -71,12 +71,17 @@ def float_or_none(val: str) -> Optional[float]:
         return None
 
 
-def filetypes_input():
+def filetypes_input(i18n=None):
     """
     Return list filetypes untuk file dialog input.
+    
+    Args:
+        i18n: Optional localization function for label translation
     
     Returns:
         List tuple (format_name, pattern)
     """
     exts = " ".join(f"*{e}" for e in sorted(INPUT_EXTS))
-    return [("Semua gambar", exts), ("Semua file", "*.*")]
+    lbl_images = i18n("all_images") if i18n else "All images"
+    lbl_files = i18n("all_files") if i18n else "All files"
+    return [(lbl_images, exts), (lbl_files, "*.*")]

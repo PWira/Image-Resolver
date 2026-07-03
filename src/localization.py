@@ -11,6 +11,7 @@ TRANSLATIONS = {
         "tab_convert": "Convert",
         "tab_resize": "Resize",
         "tab_batch": "Batch",
+        "tab_crop": "Crop",
         
         # Common UI
         "log": "Log",
@@ -20,6 +21,8 @@ TRANSLATIONS = {
         "height_px": "Height (px)",
         "mode": "Mode",
         "select_btn": "Browse...",
+        "all_images": "All images",
+        "all_files": "All files",
         
         # Tab: Convert
         "tab_convert_label": "Convert",
@@ -53,11 +56,25 @@ TRANSLATIONS = {
         "recursive": "Process subfolders (recursive)",
         "btn_batch_start": "Start Batch",
         
+        # Tab: Crop
+        "crop_x": "X offset (px)",
+        "crop_y": "Y offset (px)",
+        "crop_width": "Crop width (px)",
+        "crop_height": "Crop height (px)",
+        "btn_crop_now": "Crop Now",
+        "crop_preview_hint": "Click and drag on the preview to select crop area",
+        "crop_aspect_label": "Aspect ratio",
+        "crop_aspect_free": "Free",
+        "crop_load_preview": "Load Preview",
+        "crop_no_image": "No image loaded",
+        
         # Messages
         "error_input_missing": "Missing input",
         "error_select_file": "Please select input and output files first.",
         "error_select_folder": "Please select input and output folders.",
+        "error_crop_region": "Please specify a valid crop region.",
         "info_files_found": "files found in",
+        "info_no_files": "No matching files found in folder.",
         "info_completed": "Completed:",
         "info_ok": "successful",
         "info_err": "failed",
@@ -73,6 +90,7 @@ TRANSLATIONS = {
         "tab_convert": "Konversi",
         "tab_resize": "Resize",
         "tab_batch": "Batch",
+        "tab_crop": "Potong",
         
         # Common UI
         "log": "Log",
@@ -82,6 +100,8 @@ TRANSLATIONS = {
         "height_px": "Tinggi (px)",
         "mode": "Mode",
         "select_btn": "Pilih...",
+        "all_images": "Semua gambar",
+        "all_files": "Semua file",
         
         # Tab: Convert
         "tab_convert_label": "Konversi",
@@ -115,11 +135,25 @@ TRANSLATIONS = {
         "recursive": "Masuk subfolder (recursive)",
         "btn_batch_start": "Mulai Batch Konversi",
         
+        # Tab: Crop
+        "crop_x": "Offset X (px)",
+        "crop_y": "Offset Y (px)",
+        "crop_width": "Lebar potong (px)",
+        "crop_height": "Tinggi potong (px)",
+        "btn_crop_now": "Potong Sekarang",
+        "crop_preview_hint": "Klik dan seret pada preview untuk memilih area potong",
+        "crop_aspect_label": "Rasio aspek",
+        "crop_aspect_free": "Bebas",
+        "crop_load_preview": "Muat Preview",
+        "crop_no_image": "Belum ada gambar",
+        
         # Messages
         "error_input_missing": "Input kurang",
         "error_select_file": "Pilih file input dan output terlebih dahulu.",
         "error_select_folder": "Pilih folder input dan output.",
+        "error_crop_region": "Tentukan area potong yang valid.",
         "info_files_found": "file ditemukan di",
+        "info_no_files": "Tidak ada file yang cocok di folder.",
         "info_completed": "Selesai:",
         "info_ok": "berhasil",
         "info_err": "gagal",

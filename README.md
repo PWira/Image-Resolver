@@ -17,6 +17,7 @@ A comprehensive GUI application for quick image format conversion and resizing u
 1. **Konversi** - Convert single image to different format with optional resize
 2. **Resize** - Advanced resize options (scale %, max dimensions, multiple resize modes)
 3. **Batch** - Process multiple images from a folder with consistent settings
+4. **Crop** - Crop single image with multiple modes
 
 ## Requirements
 
@@ -52,9 +53,10 @@ python main.py
 ```
 
 2. Choose a tab based on your needs:
-   - **Konversi**: Single image conversion
+   - **Konversi**: Convert single image to different format with optional resize
    - **Resize**: Resize with advanced options
-   - **Batch**: Process multiple images
+   - **Batch**: Process multiple images from a folder with consistent settings
+   - **Crop**: Crop single image with multiple modes
 
 3. Select input file/folder, set options, and click the button
 
@@ -80,13 +82,19 @@ python main.py
 - Consistent format and quality across all images
 - Detailed success/failure log
 
+### Tab 4 : Crop
+- Crop single image with multiple modes:
+  - **Proporsional (fit)**: Maintain aspect ratio
+  - **Tepat (exact)**: Force exact dimensions
+  - **Thumbnail (crop)**: Crop to fill dimensions
+  - **Center (crop)**: Crop to fill dimensions from center
+
 ## Project Structure
 
 ```
 ImageResolver/
 ├── main.py                      # Entry point aplikasi
 ├── src/                         # Source code package
-│   ├── __init__.py              # Package initializer
 │   ├── app.py                   # Main GUI application class
 │   ├── image_processor.py       # Core image processing functions
 │   ├── constants.py             # Format, extension, dan konfigurasi

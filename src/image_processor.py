@@ -57,9 +57,9 @@ def open_image(
         except ImportError:
             raise ImportError("pymupdf belum terinstal: pip install pymupdf")
         from io import BytesIO
-        doc = fitz.open(str(path))
-        pix = doc[page].get_pixmap(dpi=150)
-        return Image.open(BytesIO(pix.tobytes("png")))
+        with fitz.open(str(path)) as doc:
+            pix = doc[page].get_pixmap(dpi=150)
+            return Image.open(BytesIO(pix.tobytes("png")))
 
     return Image.open(path)
 
@@ -164,3 +164,40 @@ def do_resize(
         return img.resize((int(ow * height / oh), height), Image.LANCZOS)
     
     return img
+
+
+def do_crop(
+    img: Image.Image,
+    x: int,
+    y: int,
+    width: int,
+    height: int
+) -> Image.Image:
+    """
+    Crop gambar ke region tertentu.
+    
+    Args:
+        img: PIL Image object
+        x: Posisi X kiri atas crop
+        y: Posisi Y kiri atas crop
+        width: Lebar area crop
+        height: Tinggi area crop
+    
+    Returns:
+        PIL Image object (cropped)
+    
+    Raises:
+        ValueError: Jika region crop di luar batas gambar
+    """
+    iw, ih = img.size
+    
+    # Clamp values to image bounds
+    x = max(0, min(x, iw))
+    y = max(0, min(y, ih))
+    right = max(0, min(x + width, iw))
+    bottom = max(0, min(y + height, ih))
+    
+    if right <= x or bottom <= y:
+        raise ValueError(f"Invalid crop region: ({x}, {y}, {right}, {bottom})")
+    
+    return img.crop((x, y, right, bottom))
