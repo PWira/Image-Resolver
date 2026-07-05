@@ -8,8 +8,7 @@ TRANSLATIONS = {
     "en": {
         # Window and tabs
         "title": "Image Converter & Resizer",
-        "tab_convert": "Convert",
-        "tab_resize": "Resize",
+        "tab_convert": "Convert & Resize",
         "tab_batch": "Batch",
         "tab_crop": "Crop",
         
@@ -24,8 +23,7 @@ TRANSLATIONS = {
         "all_images": "All images",
         "all_files": "All files",
         
-        # Tab: Convert
-        "tab_convert_label": "Convert",
+        # Tab: Convert & Resize
         "file_input": "Input file",
         "file_output": "Output file",
         "resize_optional": "Resize (optional)",
@@ -34,17 +32,13 @@ TRANSLATIONS = {
         "resize_exact": "Exact",
         "resize_thumbnail": "Thumbnail (crop)",
         "resize_percent": "Percentage (%)",
-        "btn_convert_now": "Convert Now",
+        "btn_convert_now": "Convert & Resize Now",
         "tooltip_quality": "Quality only applies to JPEG, WEBP, AVIF",
         "tooltip_width": "Leave empty if not used",
         "tooltip_height": "Leave empty if not used",
-        
-        # Tab: Resize
-        "tab_resize_label": "Resize",
         "scale_percent": "Scale (%)",
         "max_width": "Max width",
         "max_height": "Max height",
-        "btn_resize_now": "Resize Now",
         "tooltip_scale": "Example: 50 = half size",
         "tooltip_max_w": "Maximum width limit",
         "tooltip_max_h": "Maximum height limit",
@@ -87,8 +81,7 @@ TRANSLATIONS = {
     "id": {
         # Window and tabs
         "title": "Image Converter & Resizer",
-        "tab_convert": "Konversi",
-        "tab_resize": "Resize",
+        "tab_convert": "Konversi & Resize",
         "tab_batch": "Batch",
         "tab_crop": "Potong",
         
@@ -103,8 +96,7 @@ TRANSLATIONS = {
         "all_images": "Semua gambar",
         "all_files": "Semua file",
         
-        # Tab: Convert
-        "tab_convert_label": "Konversi",
+        # Tab: Convert & Resize
         "file_input": "File input",
         "file_output": "File output",
         "resize_optional": "Resize (opsional)",
@@ -113,17 +105,13 @@ TRANSLATIONS = {
         "resize_exact": "Tepat (exact)",
         "resize_thumbnail": "Thumbnail (crop)",
         "resize_percent": "Persentase (%)",
-        "btn_convert_now": "Konversi Sekarang",
+        "btn_convert_now": "Konversi & Resize Sekarang",
         "tooltip_quality": "Hanya berlaku untuk JPEG, WEBP, AVIF",
         "tooltip_width": "Kosongkan jika tidak dipakai",
         "tooltip_height": "Kosongkan jika tidak dipakai",
-        
-        # Tab: Resize
-        "tab_resize_label": "Resize",
         "scale_percent": "Skala (%)",
         "max_width": "Maks lebar",
         "max_height": "Maks tinggi",
-        "btn_resize_now": "Resize Sekarang",
         "tooltip_scale": "Contoh: 50 = setengah ukuran",
         "tooltip_max_w": "Batas lebar maksimal",
         "tooltip_max_h": "Batas tinggi maksimal",

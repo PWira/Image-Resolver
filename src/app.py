@@ -69,7 +69,6 @@ class App(tk.Tk):
         
         # Update tab titles
         self.notebook.tab(self.tab_single, text=f"  {self.i18n('tab_convert')}  ")
-        self.notebook.tab(self.tab_resize, text=f"  {self.i18n('tab_resize')}  ")
         self.notebook.tab(self.tab_batch, text=f"  {self.i18n('tab_batch')}  ")
         self.notebook.tab(self.tab_crop, text=f"  {self.i18n('tab_crop')}  ")
         
@@ -77,13 +76,12 @@ class App(tk.Tk):
         self.log_frame.config(text=self.i18n("log"))
         
         # Clear and rebuild tab contents
-        for tab in self.tab_single, self.tab_resize, self.tab_batch, self.tab_crop:
+        for tab in self.tab_single, self.tab_batch, self.tab_crop:
             for w in tab.winfo_children():
                 w.destroy()
         
         PAD = dict(padx=10, pady=4)
         self._build_single(self.tab_single, PAD)
-        self._build_resize(self.tab_resize, PAD)
         self._build_batch(self.tab_batch, PAD)
         self._build_crop(self.tab_crop, PAD)
 
@@ -95,17 +93,14 @@ class App(tk.Tk):
         self.notebook.pack(fill="both", expand=True, padx=10, pady=(10, 0))
 
         self.tab_single = ttk.Frame(self.notebook)
-        self.tab_resize = ttk.Frame(self.notebook)
         self.tab_batch  = ttk.Frame(self.notebook)
         self.tab_crop   = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_single, text=f"  {self.i18n('tab_convert')}  ")
-        self.notebook.add(self.tab_resize, text=f"  {self.i18n('tab_resize')}  ")
         self.notebook.add(self.tab_batch,  text=f"  {self.i18n('tab_batch')}  ")
         self.notebook.add(self.tab_crop,   text=f"  {self.i18n('tab_crop')}  ")
 
         self._build_single(self.tab_single, PAD)
-        self._build_resize(self.tab_resize, PAD)
         self._build_batch(self.tab_batch, PAD)
         self._build_crop(self.tab_crop, PAD)
 
@@ -138,13 +133,16 @@ class App(tk.Tk):
         self.progress_label.pack(side="left", padx=(4, 0))
 
     def _build_single(self, parent, PAD):
-        """Build tab Konversi."""
+        """Build tab Konversi & Resize."""
         self.s_src  = tk.StringVar()
         self.s_dst  = tk.StringVar()
         self.s_fmt  = tk.StringVar(value="PNG")
         self.s_qual = tk.IntVar(value=85)
         self.s_w    = tk.StringVar()
         self.s_h    = tk.StringVar()
+        self.s_scale = tk.StringVar()
+        self.s_maxw = tk.StringVar()
+        self.s_maxh = tk.StringVar()
         self.s_mode = tk.StringVar(value=self.i18n("resize_fit"))
 
         f = ttk.Frame(parent, padding=8)
@@ -177,72 +175,46 @@ class App(tk.Tk):
         ttk.Label(f, text=self.i18n("resize_optional"), font=("Segoe UI", 9, "bold")
                   ).grid(row=6, column=0, columnspan=3, sticky="w", **PAD)
 
-        ttk.Label(f, text=self.i18n("width_px")).grid(row=7, column=0, sticky="w", **PAD)
-        ttk.Entry(f, textvariable=self.s_w, width=12).grid(row=7, column=1, sticky="w", **PAD)
-        ttk.Label(f, text=self.i18n("height_px")).grid(row=8, column=0, sticky="w", **PAD)
-        ttk.Entry(f, textvariable=self.s_h, width=12).grid(row=8, column=1, sticky="w", **PAD)
+        # Nested frame for optional resize inputs
+        rf = ttk.Frame(f)
+        rf.grid(row=7, column=0, columnspan=3, sticky="ew", **PAD)
 
-        ttk.Label(f, text=self.i18n("mode_resize")).grid(row=9, column=0, sticky="w", **PAD)
-        ttk.Combobox(f, textvariable=self.s_mode, state="readonly", width=20,
+        # Row 0: Width & Height
+        ttk.Label(rf, text=self.i18n("width_px")).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=4)
+        ew = ttk.Entry(rf, textvariable=self.s_w, width=10)
+        ew.grid(row=0, column=1, sticky="w", padx=(0, 20), pady=4)
+        Tooltip(ew, self.i18n("tooltip_width"))
+
+        ttk.Label(rf, text=self.i18n("height_px")).grid(row=0, column=2, sticky="w", padx=(0, 10), pady=4)
+        eh = ttk.Entry(rf, textvariable=self.s_h, width=10)
+        eh.grid(row=0, column=3, sticky="w", pady=4)
+        Tooltip(eh, self.i18n("tooltip_height"))
+
+        # Row 1: Scale & Mode
+        ttk.Label(rf, text=self.i18n("scale_percent")).grid(row=1, column=0, sticky="w", padx=(0, 10), pady=4)
+        es = ttk.Entry(rf, textvariable=self.s_scale, width=10)
+        es.grid(row=1, column=1, sticky="w", padx=(0, 20), pady=4)
+        Tooltip(es, self.i18n("tooltip_scale"))
+
+        ttk.Label(rf, text=self.i18n("mode_resize")).grid(row=1, column=2, sticky="w", padx=(0, 10), pady=4)
+        ttk.Combobox(rf, textvariable=self.s_mode, state="readonly", width=18,
                      values=[self.i18n("resize_fit"), self.i18n("resize_exact"),
-                             self.i18n("resize_thumbnail"), self.i18n("resize_percent")]
-                     ).grid(row=9, column=1, sticky="w", **PAD)
+                             self.i18n("resize_thumbnail")]
+                     ).grid(row=1, column=3, sticky="w", pady=4)
+
+        # Row 2: Max Width & Max Height
+        ttk.Label(rf, text=self.i18n("max_width")).grid(row=2, column=0, sticky="w", padx=(0, 10), pady=4)
+        emw = ttk.Entry(rf, textvariable=self.s_maxw, width=10)
+        emw.grid(row=2, column=1, sticky="w", padx=(0, 20), pady=4)
+        Tooltip(emw, self.i18n("tooltip_max_w"))
+
+        ttk.Label(rf, text=self.i18n("max_height")).grid(row=2, column=2, sticky="w", padx=(0, 10), pady=4)
+        emh = ttk.Entry(rf, textvariable=self.s_maxh, width=10)
+        emh.grid(row=2, column=3, sticky="w", pady=4)
+        Tooltip(emh, self.i18n("tooltip_max_h"))
 
         ttk.Button(f, text=self.i18n("btn_convert_now"), command=self._run_single
-                   ).grid(row=10, column=0, columnspan=3, pady=(10, 4), ipadx=20)
-        f.columnconfigure(1, weight=1)
-
-    def _build_resize(self, parent, PAD):
-        """Build tab Resize."""
-        self.r_src   = tk.StringVar()
-        self.r_dst   = tk.StringVar()
-        self.r_w     = tk.StringVar()
-        self.r_h     = tk.StringVar()
-        self.r_scale = tk.StringVar()
-        self.r_maxw  = tk.StringVar()
-        self.r_maxh  = tk.StringVar()
-        self.r_mode  = tk.StringVar(value=self.i18n("resize_fit"))
-        self.r_qual  = tk.IntVar(value=90)
-
-        f = ttk.Frame(parent, padding=8)
-        f.pack(fill="both", expand=True)
-
-        self._row(f, 0, self.i18n("file_input"), self.r_src,
-                  lambda: self._pick_src(self.r_src, self.r_dst, None))
-        self._row(f, 1, self.i18n("file_output"), self.r_dst,
-                  lambda: self._save_as(self.r_dst, None))
-
-        ttk.Separator(f, orient="h").grid(row=2, column=0, columnspan=3, sticky="ew", pady=6)
-
-        # Resize parameters
-        for row, key_lbl, var, key_tip in [
-            (3, "width_px",  self.r_w,    "tooltip_width"),
-            (4, "height_px", self.r_h,    "tooltip_height"),
-            (5, "scale_percent",   self.r_scale,"tooltip_scale"),
-            (6, "max_width",  self.r_maxw, "tooltip_max_w"),
-            (7, "max_height", self.r_maxh, "tooltip_max_h"),
-        ]:
-            ttk.Label(f, text=self.i18n(key_lbl)).grid(row=row, column=0, sticky="w", **PAD)
-            e = ttk.Entry(f, textvariable=var, width=12)
-            e.grid(row=row, column=1, sticky="w", **PAD)
-            Tooltip(e, self.i18n(key_tip))
-
-        ttk.Label(f, text=self.i18n("mode")).grid(row=8, column=0, sticky="w", **PAD)
-        ttk.Combobox(f, textvariable=self.r_mode, state="readonly", width=20,
-                     values=[self.i18n("resize_fit"), self.i18n("resize_exact"), 
-                             self.i18n("resize_thumbnail")]
-                     ).grid(row=8, column=1, sticky="w", **PAD)
-
-        # Kualitas
-        ttk.Label(f, text=self.i18n("quality")).grid(row=9, column=0, sticky="w", **PAD)
-        qf = ttk.Frame(f)
-        qf.grid(row=9, column=1, sticky="ew", **PAD)
-        ttk.Scale(qf, from_=1, to=100, variable=self.r_qual, orient="horizontal", length=180,
-                  command=lambda v: self.r_qual.set(int(float(v)))).pack(side="left")
-        ttk.Label(qf, textvariable=self.r_qual, width=3).pack(side="left", padx=4)
-
-        ttk.Button(f, text=self.i18n("btn_resize_now"), command=self._run_resize
-                   ).grid(row=10, column=0, columnspan=3, pady=(10, 4), ipadx=20)
+                   ).grid(row=8, column=0, columnspan=3, pady=(10, 4), ipadx=20)
         f.columnconfigure(1, weight=1)
 
     def _build_batch(self, parent, PAD):
@@ -809,23 +781,20 @@ class App(tk.Tk):
 
     @staticmethod
     def _mode_str(mode_label: str) -> str:
-        """Convert mode label ke mode string untuk processing. (Fix 2: fixed duplicate + added percent)"""
+        """Convert mode label ke mode string untuk processing."""
         mode_map = {
             # English
             "Proportional (fit)": "fit",
             "Exact": "exact",
             "Thumbnail (crop)": "thumbnail",
-            "Percentage (%)": "percent",
             # Indonesian
             "Proporsional (fit)": "fit",
             "Tepat (exact)": "exact",
             "Thumbnail (crop)": "thumbnail",
-            "Persentase (%)": "percent",
             # Internal keys
             "fit": "fit",
             "exact": "exact",
             "thumbnail": "thumbnail",
-            "percent": "percent",
         }
         return mode_map.get(mode_label, "fit")
 
@@ -835,21 +804,18 @@ class App(tk.Tk):
         dst = self.s_dst.get().strip()
         if not src or not dst:
             messagebox.showwarning(self.i18n("error_input_missing"), 
-                                  self.i18n("error_select_file"))
+                                   self.i18n("error_select_file"))
             return
 
-        fmt   = self.s_fmt.get()
-        qual  = self.s_qual.get()
-        w     = int_or_none(self.s_w.get())
-        h     = int_or_none(self.s_h.get())
-        mode  = self._mode_str(self.s_mode.get())
-        scale = None
-        # Fix 3: properly handle percent mode
-        if mode == "percent":
-            scale = float_or_none(self.s_w.get())
-            if scale:
-                scale = scale / 100
-            w = h = None
+        fmt       = self.s_fmt.get()
+        qual      = self.s_qual.get()
+        w         = int_or_none(self.s_w.get())
+        h         = int_or_none(self.s_h.get())
+        maxw      = int_or_none(self.s_maxw.get())
+        maxh      = int_or_none(self.s_maxh.get())
+        scale_pct = float_or_none(self.s_scale.get())
+        scale     = (scale_pct / 100) if scale_pct else None
+        mode      = self._mode_str(self.s_mode.get())
 
         def task():
             self._set_progress(True)
@@ -861,8 +827,9 @@ class App(tk.Tk):
                 else:
                     img = open_image(Path(src))
                     self._update_progress(40)
-                    if w or h or scale:
-                        img = do_resize(img, width=w, height=h, scale=scale, mode=mode)
+                    if w or h or scale or maxw or maxh:
+                        img = do_resize(img, width=w, height=h, scale=scale,
+                                        max_w=maxw, max_h=maxh, mode=mode)
                 self._update_progress(70)
                 ext   = EXT_MAP.get(fmt, Path(dst).suffix)
                 dst_p = Path(dst).with_suffix(ext)
@@ -872,47 +839,6 @@ class App(tk.Tk):
             except Exception as e:
                 self._log(f"{self.i18n('log_error')}  {e}", "err")
                 traceback.print_exc()
-            finally:
-                self._set_progress(False)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _run_resize(self):
-        """Runner untuk resize file."""
-        src = self.r_src.get().strip()
-        dst = self.r_dst.get().strip()
-        if not src or not dst:
-            messagebox.showwarning(self.i18n("error_input_missing"), 
-                                  self.i18n("error_select_file"))
-            return
-
-        w         = int_or_none(self.r_w.get())
-        h         = int_or_none(self.r_h.get())
-        maxw      = int_or_none(self.r_maxw.get())
-        maxh      = int_or_none(self.r_maxh.get())
-        scale_pct = float_or_none(self.r_scale.get())
-        scale     = (scale_pct / 100) if scale_pct else None
-        mode      = self._mode_str(self.r_mode.get())
-        qual      = self.r_qual.get()
-
-        def task():
-            self._set_progress(True)
-            try:
-                self._update_progress(10)
-                is_svg = Path(src).suffix.lower() == ".svg"
-                if is_svg:
-                    img = open_image(Path(src), svg_width=w, svg_height=h, svg_scale=scale)
-                else:
-                    img = open_image(Path(src))
-                    self._update_progress(40)
-                    img = do_resize(img, width=w, height=h, scale=scale,
-                                    max_w=maxw, max_h=maxh, mode=mode)
-                self._update_progress(70)
-                save_image(img, Path(dst), quality=qual)
-                self._update_progress(100)
-                self._log(f"{self.i18n('log_success')}  {Path(src).name}  {self.i18n('log_arrow')}  {Path(dst).name}  {img.size}", "ok")
-            except Exception as e:
-                self._log(f"{self.i18n('log_error')}  {e}", "err")
             finally:
                 self._set_progress(False)
 

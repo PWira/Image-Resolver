@@ -14,10 +14,9 @@ A comprehensive GUI application for quick image format conversion and resizing u
 
 ### Application Tabs
 
-1. **Conversion** - Convert single image to different format with optional resize
-2. **Resize** - Advanced resize options (scale %, max dimensions, multiple resize modes)
-3. **Batch** - Process multiple images from a folder with consistent settings
-4. **Crop** - Crop single image with multiple modes
+1. **Convert & Resize** - Convert single image to different format with advanced resize options (scale %, max dimensions, multiple resize modes)
+2. **Batch** - Process multiple images from a folder with consistent settings
+3. **Crop** - Crop single image with multiple modes
 
 ## Requirements
 
@@ -53,8 +52,7 @@ python main.py
 ```
 
 2. Choose a tab based on your needs:
-   - **Conversion**: Single image conversion
-   - **Resize**: Resize with advanced options
+   - **Convert & Resize**: Single image conversion and resizing
    - **Batch**: Process multiple images from a folder with consistent settings
    - **Crop**: Crop single image with multiple modes
 
@@ -62,27 +60,24 @@ python main.py
 
 ## Usage
 
-### Tab 1: Conversion
+### Tab 1: Convert & Resize
 - Convert a single image to a different format
-- Optional: Resize while converting
-- Adjustable quality for JPEG/WEBP/AVIF
-- Auto-generates output filename
-
-### Tab 2: Resize
-- Resize with multiple modes:
+- Optional: Resize while converting with advanced options:
   - **Proportional (fit)**: Maintain aspect ratio
   - **Exact**: Force exact dimensions
   - **Thumbnail (crop)**: Crop to fill dimensions
-- Scale by percentage
-- Set maximum width/height constraints
+  - **Scale (%)**: Scale image size by percentage
+  - **Maximum width/height constraints**
+- Adjustable quality for JPEG/WEBP/AVIF
+- Auto-generates output filename
 
-### Tab 3: Batch
+### Tab 2: Batch
 - Process multiple images from a folder
 - Recursive option to process subfolders
 - Consistent format and quality across all images
 - Detailed success/failure log
 
-### Tab 4 : Crop
+### Tab 3: Crop
 - Crop single image with multiple modes:
   - **Proporsional (fit)**: Maintain aspect ratio
   - **Tepat (exact)**: Force exact dimensions
@@ -113,7 +108,7 @@ ImageConversion/
 | Module | Purpose |
 |--------|---------|
 | **main.py** | Entry point application. Validate tkinter and Pillow dependencies, and to run GUI. |
-| **src/app.py** | Kelas `App` (tkinter.Tk) handling UI and logic. contains 3 tab: Conversion, Resize, Batch. |
+| **src/app.py** | Kelas `App` (tkinter.Tk) handling UI and logic. Contains 3 tabs: Convert & Resize, Batch, and Crop. |
 | **src/image_processor.py** | Core function for image processing: `open_image()` (open SVG/PDF/Image), `save_image()` (save with conversion code), and `do_resize()` (resize with different mode). |
 | **src/constants.py** | Global constant: format output, mapping file extension, set input extension, conversion mode, and other conversion. |
 | **src/ui_components.py** | reusable components and utilities: class `Tooltip` for hover hints, and parser function (`int_or_none`, `float_or_none`, `filetypes_input`). |
