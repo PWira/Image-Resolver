@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QTextEdit, QCheckBox, QRadioButton, QButtonGroup,
     QFrame, QSizePolicy, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
     QGraphicsRectItem, QAbstractItemView, QGroupBox, QApplication,
-    QSplitter, QScrollArea,
+    QSplitter, QScrollArea, QDialog,
 )
 from PySide6.QtCore import Qt, Signal, QObject, QRectF, QPointF, QTimer
 from PySide6.QtGui import (
@@ -30,7 +30,7 @@ from src.constants import OUTPUT_FORMATS, EXT_MAP, INPUT_EXTS
 from src.image_processor import open_image, save_image, do_resize, do_crop, do_center_crop
 from src.ui_components import int_or_none, float_or_none, file_filter_string, CollapsibleSection, Separator, InteractiveCropView
 from src.localization import get_i18n, set_language
-from src.theme import get_stylesheet, GOLD, SUCCESS, ERROR, INFO, TEXT_DIM, DARK_BG
+from src.theme import get_stylesheet, GOLD, SUCCESS, ERROR, INFO, TEXT_DIM, DARK_BG, CARD_BG, BORDER
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -113,12 +113,14 @@ class App(QMainWindow):
             self.move(x, y)
 
     def _build_menu(self):
-        """Build menu bar with language selector."""
+        """Build menu bar with language selector and about."""
         menu = self.menuBar()
         lang_menu = menu.addMenu("Language")
-        lang_menu = menu.addMenu("about")
         lang_menu.addAction("English", lambda: self._change_language("en"))
         lang_menu.addAction("Bahasa Indonesia", lambda: self._change_language("id"))
+
+        about_menu = menu.addMenu("About")
+        about_menu.addAction("About QIF", self._show_about)
 
     def _change_language(self, lang: str):
         """Change language and rebuild UI."""
@@ -130,6 +132,102 @@ class App(QMainWindow):
         self.setWindowTitle(self.i18n("title"))
         # Update log header
         self._log_label.setText(self.i18n("log"))
+
+    # ── About dialog ─────────────────────────────────────────
+
+    def _show_about(self):
+        """Show the About dialog."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About QIF")
+        dlg.setFixedSize(420, 340)
+        dlg.setStyleSheet(f"""
+            QDialog {{
+                background-color: {CARD_BG};
+            }}
+            QLabel {{
+                color: #CCCCCC;
+            }}
+            QLabel#aboutTitle {{
+                color: {GOLD};
+                font-size: 18pt;
+                font-weight: bold;
+            }}
+            QLabel#aboutSubtitle {{
+                color: #AAAAAA;
+                font-size: 10pt;
+            }}
+            QLabel#aboutLink {{
+                color: {GOLD};
+                font-size: 10pt;
+            }}
+            QPushButton {{
+                background-color: {GOLD};
+                color: #1A1A1A;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 28px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #D4B65A;
+            }}
+        """)
+
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+        layout.setContentsMargins(28, 24, 28, 20)
+
+        # App icon
+        icon_path = _PROJECT_ROOT / "monolight.png"
+        if icon_path.exists():
+            icon_label = QLabel()
+            px = QPixmap(str(icon_path)).scaled(
+                64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation,
+            )
+            icon_label.setPixmap(px)
+            icon_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(icon_label)
+
+        title = QLabel("QIF — Quick Image Formatting")
+        title.setObjectName("aboutTitle")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        version = QLabel("Image converter, resizer & cropper")
+        version.setObjectName("aboutSubtitle")
+        version.setAlignment(Qt.AlignCenter)
+        layout.addWidget(version)
+
+        layout.addSpacing(8)
+
+        author = QLabel(
+            "Made by <b>Wira</b> (PWira)\n"
+        )
+        author.setAlignment(Qt.AlignCenter)
+        layout.addWidget(author)
+
+        link = QLabel(
+            '<a style="color: #C9A84C;" '
+            'href="https://github.com/PWira/Image-Resolver">'
+            'github.com/PWira/Image-Resolver</a>'
+        )
+        link.setObjectName("aboutLink")
+        link.setAlignment(Qt.AlignCenter)
+        link.setOpenExternalLinks(True)
+        layout.addWidget(link)
+
+        license_lbl = QLabel("Licensed under the MIT License")
+        license_lbl.setObjectName("aboutSubtitle")
+        license_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(license_lbl)
+
+        layout.addStretch()
+
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(dlg.accept)
+        layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+
+        dlg.exec()
 
     # ── Log area ─────────────────────────────────────────────
 
