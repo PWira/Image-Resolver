@@ -1,34 +1,36 @@
 """
-Image Resolver - GUI untuk konversi format gambar dan resize.
+Image Resolver - GUI for image format conversion, resizing, and cropping.
 
-Dependensi:
-    pip install Pillow cairosvg pymupdf
+Dependencies:
+    pip install Pillow cairosvg pymupdf PySide6
 
-Jalankan:
+Run:
     python main.py
 """
 
 import sys
 
-# Validasi tkinter
+# Validate PySide6
 try:
-    import tkinter as tk
+    from PySide6.QtWidgets import QApplication
 except ImportError:
-    sys.exit("tkinter tidak tersedia. Pastikan Python diinstal dengan modul tkinter.")
+    sys.exit("PySide6 is not installed. Run: pip install PySide6")
 
-# Validasi Pillow
+# Validate Pillow
 try:
     from PIL import Image
 except ImportError:
-    sys.exit("Pillow belum terinstal. Jalankan: pip install Pillow")
+    sys.exit("Pillow is not installed. Run: pip install Pillow")
 
 from src.app import App
 
 
 def main():
-    """Entry point aplikasi."""
-    app = App()
-    app.mainloop()
+    """Entry point for the application."""
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -201,3 +201,39 @@ def do_crop(
         raise ValueError(f"Invalid crop region: ({x}, {y}, {right}, {bottom})")
     
     return img.crop((x, y, right, bottom))
+
+
+def do_center_crop(
+    img: Image.Image,
+    width: int,
+    height: int,
+    anchor: str = "center"
+) -> Image.Image:
+    """
+    Crop gambar ke ukuran tertentu dari posisi anchor.
+    
+    Args:
+        img: PIL Image object
+        width: Lebar area crop
+        height: Tinggi area crop
+        anchor: Posisi anchor ("center" atau "top-left")
+    
+    Returns:
+        PIL Image object (cropped)
+    
+    Raises:
+        ValueError: Jika ukuran crop lebih besar dari gambar
+    """
+    iw, ih = img.size
+    
+    # Clamp to image size
+    width = min(width, iw)
+    height = min(height, ih)
+    
+    if anchor == "top-left":
+        x, y = 0, 0
+    else:  # center
+        x = (iw - width) // 2
+        y = (ih - height) // 2
+    
+    return img.crop((x, y, x + width, y + height))

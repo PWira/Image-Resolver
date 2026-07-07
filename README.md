@@ -21,7 +21,8 @@ A comprehensive GUI application for quick image format conversion and resizing u
 ## Requirements
 
 - Python 3.7+
-- tkinter (usually comes with Python)
+- PySide6
+- openpyxl
 - Pillow
 - cairosvg
 - pymupdf
