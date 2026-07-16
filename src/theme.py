@@ -7,26 +7,159 @@ Theme configuration for Quick Image Formatting.
 ╚══════════════════════════════════════════════════════════════╝
 """
 
-# ── Base Colors ──────────────────────────────────────────────
-# These three colors define the entire palette. Change them freely.
+import colorsys
 
-WHITE       = "#FFFFFF"       # Primary text, highlights
-BLACK_MATTE = "#1A1A1A"       # Dark surfaces, cards
-GOLD        = "#C9A84C"       # Accent buttons, active elements
+# ── Preset Theme Palettes ────────────────────────────────────
+PALETTES = {
+    "gold": {
+        "WHITE": "#FFFFFF",
+        "BLACK_MATTE": "#1A1A1A",
+        "GOLD": "#C9A84C",
+        "DARK_BG": "#121212",
+        "CARD_BG": "#1E1E1E",
+        "BORDER": "#2A2A2A",
+        "TEXT_PRIMARY": "#FFFFFF",
+        "TEXT_DIM": "#888888",
+        "GOLD_HOVER": "#D4B65A",
+        "GOLD_PRESSED": "#B8963F",
+        "SUCCESS": "#4CAF50",
+        "ERROR": "#E53935",
+        "INFO": "#64B5F6",
+    },
+    "purple": {
+        "WHITE": "#FFFFFF",
+        "BLACK_MATTE": "#110D26",
+        "GOLD": "#BD93F9",
+        "DARK_BG": "#0F0C1B",
+        "CARD_BG": "#1B172E",
+        "BORDER": "#332B54",
+        "TEXT_PRIMARY": "#FFFFFF",
+        "TEXT_DIM": "#7F739F",
+        "GOLD_HOVER": "#D6BBFF",
+        "GOLD_PRESSED": "#9A66E8",
+        "SUCCESS": "#50FA7B",
+        "ERROR": "#FF5555",
+        "INFO": "#8BE9FD",
+    },
+    "blue": {
+        "WHITE": "#FFFFFF",
+        "BLACK_MATTE": "#1C2433",
+        "GOLD": "#88C0D0",
+        "DARK_BG": "#171E29",
+        "CARD_BG": "#232D3F",
+        "BORDER": "#364560",
+        "TEXT_PRIMARY": "#FFFFFF",
+        "TEXT_DIM": "#889BB8",
+        "GOLD_HOVER": "#A3D2E2",
+        "GOLD_PRESSED": "#64A6BB",
+        "SUCCESS": "#A3BE8C",
+        "ERROR": "#BF616A",
+        "INFO": "#B48EAD",
+    },
+    "green": {
+        "WHITE": "#FFFFFF",
+        "BLACK_MATTE": "#0D1A12",
+        "GOLD": "#00F5D4",
+        "DARK_BG": "#0A140E",
+        "CARD_BG": "#13261B",
+        "BORDER": "#244432",
+        "TEXT_PRIMARY": "#FFFFFF",
+        "TEXT_DIM": "#7AA28D",
+        "GOLD_HOVER": "#46FDE6",
+        "GOLD_PRESSED": "#00CCB0",
+        "SUCCESS": "#50FA7B",
+        "ERROR": "#FF5555",
+        "INFO": "#8BE9FD",
+    },
+    "light": {
+        "WHITE": "#1A1A1A",
+        "BLACK_MATTE": "#FFFFFF",
+        "GOLD": "#E65100",
+        "DARK_BG": "#F4F5F7",
+        "CARD_BG": "#FFFFFF",
+        "BORDER": "#E1E4E8",
+        "TEXT_PRIMARY": "#1A1A1A",
+        "TEXT_DIM": "#6A737D",
+        "GOLD_HOVER": "#FF6D00",
+        "GOLD_PRESSED": "#D84315",
+        "SUCCESS": "#28A745",
+        "ERROR": "#D73A49",
+        "INFO": "#0366D6",
+    }
+}
 
-# ── Derived Colors ───────────────────────────────────────────
-# These are computed from the base colors. You can override them too.
+# ── Dynamic Colors State ─────────────────────────────────────
+WHITE = "#FFFFFF"
+BLACK_MATTE = "#1A1A1A"
+GOLD = "#C9A84C"
+DARK_BG = "#121212"
+CARD_BG = "#1E1E1E"
+BORDER = "#2A2A2A"
+TEXT_PRIMARY = "#FFFFFF"
+TEXT_DIM = "#888888"
+GOLD_HOVER = "#D4B65A"
+GOLD_PRESSED = "#B8963F"
+SUCCESS = "#4CAF50"
+ERROR = "#E53935"
+INFO = "#64B5F6"
 
-DARK_BG      = "#121212"      # Deepest background (window)
-CARD_BG      = "#1E1E1E"      # Panel / card background
-BORDER       = "#2A2A2A"      # Subtle borders between sections
-TEXT_PRIMARY = WHITE           # Main text color
-TEXT_DIM     = "#888888"       # Hint text, disabled labels
-GOLD_HOVER   = "#D4B65A"      # Button hover state
-GOLD_PRESSED = "#B8963F"      # Button pressed state
-SUCCESS      = "#4CAF50"      # Success log entries
-ERROR        = "#E53935"      # Error log entries
-INFO         = "#64B5F6"      # Info log entries
+current_palette_name = "gold"
+custom_accent_color = ""
+
+def adjust_color_lightness(hex_color: str, factor: float) -> str:
+    """Adjust lightness of a hex color using HSL conversion."""
+    hex_color = hex_color.lstrip('#')
+    try:
+        r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    except ValueError:
+        return "#C9A84C"
+    
+    h, l, s = colorsys.rgb_to_hls(r/255.0, g/255.0, b/255.0)
+    l = max(0.0, min(1.0, l * factor))
+    nr, ng, nb = colorsys.hls_to_rgb(h, l, s)
+    return f"#{int(nr*255):02X}{int(ng*255):02X}{int(nb*255):02X}"
+
+def set_active_palette(name: str):
+    """Set preset palette variables globally."""
+    global current_palette_name, custom_accent_color
+    if name not in PALETTES:
+        return
+    current_palette_name = name
+    custom_accent_color = ""
+    _apply_palette(PALETTES[name])
+
+def set_custom_accent(hex_color: str):
+    """Derive custom accent colors and apply them on a dark slate background."""
+    global current_palette_name, custom_accent_color
+    current_palette_name = "custom"
+    custom_accent_color = hex_color
+    
+    # Base custom color on Gold Dust dark mode background
+    base = dict(PALETTES["gold"])
+    base["GOLD"] = hex_color
+    base["GOLD_HOVER"] = adjust_color_lightness(hex_color, 1.15)
+    base["GOLD_PRESSED"] = adjust_color_lightness(hex_color, 0.85)
+    _apply_palette(base)
+
+def _apply_palette(palette: dict):
+    global WHITE, BLACK_MATTE, GOLD, DARK_BG, CARD_BG, BORDER
+    global TEXT_PRIMARY, TEXT_DIM, GOLD_HOVER, GOLD_PRESSED
+    global SUCCESS, ERROR, INFO
+    
+    WHITE = palette["WHITE"]
+    BLACK_MATTE = palette["BLACK_MATTE"]
+    GOLD = palette["GOLD"]
+    DARK_BG = palette["DARK_BG"]
+    CARD_BG = palette["CARD_BG"]
+    BORDER = palette["BORDER"]
+    TEXT_PRIMARY = palette["TEXT_PRIMARY"]
+    TEXT_DIM = palette["TEXT_DIM"]
+    GOLD_HOVER = palette["GOLD_HOVER"]
+    GOLD_PRESSED = palette["GOLD_PRESSED"]
+    SUCCESS = palette["SUCCESS"]
+    ERROR = palette["ERROR"]
+    INFO = palette["INFO"]
+
 
 # ── Fonts ────────────────────────────────────────────────────
 
@@ -416,8 +549,57 @@ def get_stylesheet() -> str:
 
     /* ── Canvas (Crop Preview) ────────────────────────── */
     QGraphicsView {{
-        background-color: #0D0D0D;
+        background-color: #000000;
         border: 1px solid {BORDER};
         border-radius: {BORDER_RADIUS}px;
     }}
+
+
+    /* ── Custom Layout Restructuring Styles ───────────── */
+    QFrame#headerPanel {{
+        background-color: {CARD_BG};
+        border: 1px solid {BORDER};
+        border-radius: {BORDER_RADIUS}px;
+    }}
+
+    QPushButton#featureBtn {{
+        background-color: transparent;
+        color: {TEXT_DIM};
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 6px 18px;
+        font-weight: bold;
+    }}
+
+    QPushButton#featureBtn:hover {{
+        color: {WHITE};
+        background-color: rgba(255, 255, 255, 0.05);
+    }}
+
+    QPushButton#featureBtn:checked {{
+        color: {GOLD};
+        background-color: rgba(201, 168, 76, 0.15);
+        border: 1px solid {GOLD};
+    }}
+
+    QPushButton#settingsBtn {{
+        background-color: transparent;
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER};
+        border-radius: 4px;
+        padding: 6px 14px;
+        font-weight: bold;
+    }}
+
+    QPushButton#settingsBtn:hover {{
+        color: {GOLD};
+        border-color: {GOLD};
+        background-color: rgba(201, 168, 76, 0.05);
+    }}
+
+    QPushButton#settingsBtn::menu-indicator {{
+        image: none;
+        width: 0;
+    }}
     """
+

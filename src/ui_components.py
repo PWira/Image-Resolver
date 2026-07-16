@@ -15,7 +15,7 @@ from PySide6.QtGui import QIcon, QPixmap, QImage, QPen, QBrush, QColor, QPainter
 from PIL import Image
 
 from src.constants import INPUT_EXTS
-from src.theme import GOLD
+import src.theme as theme
 
 
 def int_or_none(val: str) -> Optional[int]:
@@ -115,6 +115,15 @@ class CollapsibleSection(QWidget):
     def content_layout(self) -> QVBoxLayout:
         """Get the layout to add child widgets into."""
         return self._content_layout
+
+    def setTitle(self, title: str):
+        """Set a new title for the collapsible panel."""
+        self._title = title
+        if self._is_expanded:
+            self._toggle_btn.setText(f"▼  {title}")
+        else:
+            self._toggle_btn.setText(f"▶  {title}")
+
 
     def _toggle(self):
         self._is_expanded = self._toggle_btn.isChecked()
@@ -357,10 +366,10 @@ class InteractiveCropView(QGraphicsView):
         _dim(cr.right(), cr.top(), sb.right() - cr.right(), cr.height())
 
         self._gfx_border = self._scene.addRect(
-            cr, QPen(QColor(GOLD), 2, Qt.DashLine))
+            cr, QPen(QColor(theme.GOLD), 2, Qt.DashLine))
 
         hs = self._HD
-        hp, hb = QPen(QColor("#000000"), 1), QBrush(QColor(GOLD))
+        hp, hb = QPen(QColor("#000000"), 1), QBrush(QColor(theme.GOLD))
         for pt in self._hpts():
             self._gfx_handles.append(self._scene.addRect(
                 QRectF(pt.x() - hs, pt.y() - hs, hs * 2, hs * 2), hp, hb))
@@ -517,3 +526,50 @@ class InteractiveCropView(QGraphicsView):
 
         if r.width() >= self._MIN and r.height() >= self._MIN:
             self._crop = r
+
+
+class FittedImageView(QGraphicsView):
+    """
+    A QGraphicsView that simply displays an image scaled to fit the viewport.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._scene = QGraphicsScene(self)
+        self.setScene(self._scene)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._pil_img = None
+        self._pm_item = None
+
+    def load_image(self, pil_img):
+        self._pil_img = pil_img
+        self._scene.clear()
+        self._pm_item = None
+        if not pil_img:
+            return
+        iw, ih = pil_img.size
+        rgba = pil_img.convert("RGBA") if pil_img.mode != "RGBA" else pil_img
+        raw = rgba.tobytes("raw", "RGBA")
+        qimg = QImage(raw, iw, ih, 4 * iw, QImage.Format_RGBA8888)
+        full = QPixmap.fromImage(qimg)
+        vw = self.viewport().width() or 380
+        vh = self.viewport().height() or 240
+        scale = min(vw / iw, vh / ih, 1.0)
+        pm = full.scaled(
+            int(iw * scale), int(ih * scale),
+            Qt.KeepAspectRatio, Qt.SmoothTransformation,
+        )
+        self._pm_item = self._scene.addPixmap(pm)
+        self._scene.setSceneRect(QRectF(pm.rect()))
+
+    def clear_image(self):
+        self._pil_img = None
+        self._scene.clear()
+        self._pm_item = None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._pil_img:
+            self.load_image(self._pil_img)
+

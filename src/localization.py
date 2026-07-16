@@ -10,6 +10,18 @@ TRANSLATIONS = {
     "en": {
         # Window
         "title": "Quick Image Formatting",
+        "settings": "Settings",
+        "about_qif": "About QIF",
+        "language": "Language",
+        "convert": "Convert",
+        "crop": "Crop",
+        "color_palette": "Color Palette",
+        "custom_color": "Custom Accent Color...",
+        "theme_gold": "Gold Dust",
+        "theme_purple": "Cyber Neon",
+        "theme_blue": "Nord Ocean",
+        "theme_green": "Forest Mint",
+        "theme_light": "Solar Light",
 
         # Tabs
         "tab_convert": "Convert Images",
@@ -85,6 +97,18 @@ TRANSLATIONS = {
     "id": {
         # Window
         "title": "Quick Image Formatting",
+        "settings": "Pengaturan",
+        "about_qif": "Tentang QIF",
+        "language": "Bahasa",
+        "convert": "Konversi",
+        "crop": "Potong",
+        "color_palette": "Tema Warna",
+        "custom_color": "Warna Aksen Kustom...",
+        "theme_gold": "Emas Klasik",
+        "theme_purple": "Cyber Neon",
+        "theme_blue": "Nord Ocean",
+        "theme_green": "Forest Mint",
+        "theme_light": "Solar Light",
 
         # Tabs
         "tab_convert": "Konversi Gambar",

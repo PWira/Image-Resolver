@@ -112,7 +112,7 @@ ImageConversion/
 | **src/app.py** | Kelas `App` (tkinter.Tk) handling UI and logic. Contains 3 tabs: Convert & Resize, Batch, and Crop. |
 | **src/image_processor.py** | Core function for image processing: `open_image()` (open SVG/PDF/Image), `save_image()` (save with conversion code), and `do_resize()` (resize with different mode). |
 | **src/constants.py** | Global constant: format output, mapping file extension, set input extension, conversion mode, and other conversion. |
-| **src/ui_components.py** | reusable components and utilities: class `Tooltip` for hover hints, and parser function (`int_or_none`, `float_or_none`, `filetypes_input`). |
+| **src/ui_components.py** | Reusable components and utilities: class `Tooltip` for hover hints, and parser function (`int_or_none`, `float_or_none`, `filetypes_input`). |
 
 ## Building Executable (Optional)
 
