@@ -31,8 +31,8 @@ A comprehensive GUI application for quick image format conversion and resizing u
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/PWira/Image-Conversion.git
-cd ImageResolver
+git clone https://github.com/PWira/QIF-Quick-Image-Formatting.git
+cd QIF-Quick-Image-Formatting
 ```
 
 2. Install dependencies:
@@ -89,14 +89,14 @@ python main.py
 
 ```
 ImageConversion/
-├── main.py                      # Entry point aplikasi
+├── main.py                      # Entry point application
 ├── src/                         # Source code package
 │   ├── app.py                   # Main GUI application class
 │   ├── image_processor.py       # Core image processing functions
-│   ├── constants.py             # Format, extension, dan konfigurasi
+│   ├── constants.py             # Format, extension, dan configuration
 │   └── ui_components.py         # GUI utilities (Tooltip, helpers)
 ├── depricated/                  # Legacy files
-│   └── ImageResolver.py         # (deprecated - gunakan main.py)
+│   └── ImageResolver.py         # (deprecated - use main.py)
 ├── requirements.txt             # Python dependencies
 ├── LICENSE                      # MIT License
 ├── README.md                    # This file
@@ -120,7 +120,7 @@ To create a standalone executable using PyInstaller:
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --icon=monolight.png --name="Image Conversion" --distpath="./dist" main.py
+pyinstaller --noconfirm "Quick Image Formatting.spec"
 ```
 
 The executable will be available in `./dist/` folder.

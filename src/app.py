@@ -1,5 +1,5 @@
 """
-Main application window for Image Resolver (PySide6 / Qt).
+Main application window for Quick Image Formatting (PySide6 / Qt).
 
 Two tabs:
   1. Convert Images — unified single + batch workflow
@@ -7,6 +7,7 @@ Two tabs:
 """
 
 import traceback
+import sys
 import threading
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -32,7 +33,11 @@ from src.ui_components import int_or_none, float_or_none, file_filter_string, Co
 from src.localization import get_i18n, set_language
 from src.theme import get_stylesheet, GOLD, SUCCESS, ERROR, INFO, TEXT_DIM, DARK_BG, CARD_BG, BORDER
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if hasattr(sys, '_MEIPASS'):
+    _PROJECT_ROOT = Path(sys._MEIPASS)
+else:
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 
 # ── Signal bridge for thread-safe GUI updates ────────────────
@@ -188,7 +193,7 @@ class App(QMainWindow):
             icon_label.setAlignment(Qt.AlignCenter)
             layout.addWidget(icon_label)
 
-        title = QLabel("QIF — Quick Image Formatting")
+        title = QLabel("QIF - Quick Image Formatting")
         title.setObjectName("aboutTitle")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
@@ -208,8 +213,8 @@ class App(QMainWindow):
 
         link = QLabel(
             '<a style="color: #C9A84C;" '
-            'href="https://github.com/PWira/Image-Resolver">'
-            'github.com/PWira/Image-Resolver</a>'
+            'href="https://github.com/PWira/QIF-Quick-Image-Formatting">'
+            'github.com/PWira/QIF-Quick-Image-Formatting</a>'
         )
         link.setObjectName("aboutLink")
         link.setAlignment(Qt.AlignCenter)

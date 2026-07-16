@@ -1,5 +1,5 @@
 """
-Localization/i18n module for Image Resolver.
+Localization/i18n module for Quick Image Formatting.
 Supports English (default) and Indonesian.
 
 All labels are written in simple, plain language that anyone can understand.
@@ -9,7 +9,7 @@ All labels are written in simple, plain language that anyone can understand.
 TRANSLATIONS = {
     "en": {
         # Window
-        "title": "Image Resolver",
+        "title": "Quick Image Formatting",
 
         # Tabs
         "tab_convert": "Convert Images",
@@ -84,7 +84,7 @@ TRANSLATIONS = {
     },
     "id": {
         # Window
-        "title": "Image Resolver",
+        "title": "Quick Image Formatting",
 
         # Tabs
         "tab_convert": "Konversi Gambar",
@@ -161,7 +161,7 @@ TRANSLATIONS = {
 
 
 class I18n:
-    """Localization manager for Image Resolver."""
+    """Localization manager for Quick Image Formatting."""
 
     def __init__(self, language: str = "en"):
         """

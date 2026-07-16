@@ -1,5 +1,5 @@
 """
-Konstanta untuk Image Resolver - format, ekstensi, dan konfigurasi.
+Konstanta untuk Quick Image Formatting - format, ekstensi, dan konfigurasi.
 """
 
 # Format output yang praktis dan umum dipakai

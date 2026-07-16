@@ -1,5 +1,5 @@
 """
-Theme configuration for Image Resolver.
+Theme configuration for Quick Image Formatting.
 
 ╔══════════════════════════════════════════════════════════════╗
 ║  EDIT THIS FILE TO CHANGE THE ENTIRE APP'S LOOK AND FEEL   ║

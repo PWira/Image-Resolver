@@ -1,5 +1,5 @@
 """
-Reusable Qt UI components for Image Resolver.
+Reusable Qt UI components for Quick Image Formatting.
 """
 
 from pathlib import Path
