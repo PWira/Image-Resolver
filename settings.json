@@ -1,5 +1,8 @@
 {
-    "language": "id",
+    "language": "en",
     "palette": "purple",
-    "custom_accent": ""
+    "custom_accent": "",
+    "recent_projects": [
+        "G:\\MyOwnScripts\\Python\\ImageResolver\\testfile\\test.qif"
+    ]
 }

@@ -1,6 +1,6 @@
 # QIF - Quick Image Formatting
 
-A comprehensive GUI application for quick image format conversion and resizing using Python and tkinter.
+A comprehensive GUI application for quick image format conversion and resizing using Python and PySide6 (Qt for Python).
 
 ## Features
 
@@ -9,7 +9,10 @@ A comprehensive GUI application for quick image format conversion and resizing u
 - **SVG & PDF Support**: Direct conversion from SVG and PDF files
 - **Batch Processing**: Process multiple files at once with recursive folder support
 - **Quality Control**: Adjustable compression quality for lossy formats
-- **User-Friendly GUI**: Built with tkinter (cross-platform, no external dependencies for UI)
+- **Project File Management**: Save, load, and manage sessions securely using encrypted `.qif` project files (AES-128 via Cryptography/Fernet)
+- **Session Auto-Recovery**: Recovers unsaved changes automatically from temporary `autosave.qif` sessions in case of crash/unexpected quit
+- **Windows File Association**: Registers `.qif` file association in the Windows registry on start, enabling double-click to open project files
+- **User-Friendly GUI**: Modern, responsive interface built with PySide6 (Qt) and customizable theme color palettes (Gold, Purple, Blue, Green, Light, and Custom accents)
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 
 ### Application Tabs
@@ -22,10 +25,12 @@ A comprehensive GUI application for quick image format conversion and resizing u
 
 - Python 3.7+
 - PySide6
-- openpyxl
 - Pillow
 - cairosvg
 - pymupdf
+- openpyxl
+- cryptography
+
 
 ## Installation
 
@@ -42,7 +47,7 @@ pip install -r requirements.txt
 
 Or manually:
 ```bash
-pip install Pillow cairosvg pymupdf
+pip install PySide6 Pillow cairosvg pymupdf openpyxl cryptography
 ```
 
 ## Quick Start
@@ -50,6 +55,11 @@ pip install Pillow cairosvg pymupdf
 1. Run the application:
 ```bash
 python main.py
+```
+
+You can also open project files directly by double-clicking a `.qif` file (on Windows after the first run as compiled executable) or by passing the project path as an argument:
+```bash
+python main.py path/to/project.qif
 ```
 
 2. Choose a tab based on your needs:
@@ -93,8 +103,11 @@ ImageConversion/
 ├── src/                         # Source code package
 │   ├── app.py                   # Main GUI application class
 │   ├── image_processor.py       # Core image processing functions
-│   ├── constants.py             # Format, extension, dan configuration
-│   └── ui_components.py         # GUI utilities (Tooltip, helpers)
+│   ├── project_manager.py       # Handles secure encryption/decryption of project state
+│   ├── theme.py                 # Core palette theme configuration
+│   ├── localization.py          # Multilingual localization settings (EN/ID)
+│   ├── constants.py             # Format, extension, and configuration constants
+│   └── ui_components.py         # GUI utilities (Tooltip, custom widgets, helpers)
 ├── depricated/                  # Legacy files
 │   └── ImageResolver.py         # (deprecated - use main.py)
 ├── requirements.txt             # Python dependencies
@@ -108,11 +121,14 @@ ImageConversion/
 
 | Module | Purpose |
 |--------|---------|
-| **main.py** | Entry point application. Validate tkinter and Pillow dependencies, and to run GUI. |
-| **src/app.py** | Kelas `App` (tkinter.Tk) handling UI and logic. Contains 3 tabs: Convert & Resize, Batch, and Crop. |
-| **src/image_processor.py** | Core function for image processing: `open_image()` (open SVG/PDF/Image), `save_image()` (save with conversion code), and `do_resize()` (resize with different mode). |
-| **src/constants.py** | Global constant: format output, mapping file extension, set input extension, conversion mode, and other conversion. |
-| **src/ui_components.py** | Reusable components and utilities: class `Tooltip` for hover hints, and parser function (`int_or_none`, `float_or_none`, `filetypes_input`). |
+| **main.py** | Entry point application. Validates dependencies, registers Windows file association, parses command line args, and boots PySide6. |
+| **src/app.py** | `App` class (QMainWindow) handling PySide6 UI, menus, settings persistence, and project state. |
+| **src/project_manager.py** | Encrypts and decrypts `.qif` project files using AES-128 via the Cryptography library. |
+| **src/theme.py** | Theme manager supporting multiple preset color palettes (Gold, Purple, Blue, Green, Light) and custom color accents. |
+| **src/localization.py** | Handles language translation configuration for a bilingual interface (English / Indonesian). |
+| **src/image_processor.py** | Core functions for opening images (SVG/PDF/Raster), resizing (Proportional, Exact, Thumbnail), and saving with conversions. |
+| **src/constants.py** | Global constants for formats, extension mappings, and default parameters. |
+| **src/ui_components.py** | Reusable PySide6 custom widgets, tools (Tooltip), and input validation helper functions. |
 
 ## Building Executable (Optional)
 

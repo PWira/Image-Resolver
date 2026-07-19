@@ -93,6 +93,23 @@ TRANSLATIONS = {
         "log_ok_count": "saved",
         "log_err_count": "failed",
         "log_no_files": "No matching images found in that folder.",
+
+        # Project Menu
+        "project": "Project",
+        "open_project": "Open Project...",
+        "open_recent": "Open Recent",
+        "recovered_session": "Recovered Session",
+        "no_recent_projects": "No Recent Projects",
+        "save_project": "Save Project...",
+        "project_files": "QIF Project Files (*.qif)",
+        "project_saved": "Project saved successfully.",
+        "project_loaded": "Project loaded successfully.",
+        "project_corrupted_title": "Security Warning",
+        "project_corrupted": "Failed to open project. The file structure is invalid or the file has been tampered with or corrupted.",
+        "project_missing_images_title": "Missing Images",
+        "project_missing_images": "The following images could not be found and were skipped:\n\n{paths}",
+        "unsaved_changes_title": "Unsaved Changes",
+        "unsaved_changes": "You have unsaved changes. Do you want to save your project before closing?",
     },
     "id": {
         # Window
@@ -180,6 +197,23 @@ TRANSLATIONS = {
         "log_ok_count": "tersimpan",
         "log_err_count": "gagal",
         "log_no_files": "Tidak ada gambar yang cocok di folder itu.",
+
+        # Menu Proyek
+        "project": "Proyek",
+        "open_project": "Buka Proyek...",
+        "open_recent": "Buka Terbaru",
+        "recovered_session": "Sesi Pemulihan",
+        "no_recent_projects": "Tidak Ada Proyek Terbaru",
+        "save_project": "Simpan Proyek...",
+        "project_files": "File Proyek QIF (*.qif)",
+        "project_saved": "Proyek berhasil disimpan.",
+        "project_loaded": "Proyek berhasil dimuat.",
+        "project_corrupted_title": "Peringatan Keamanan",
+        "project_corrupted": "Gagal membuka proyek. Struktur file tidak valid atau file telah dimodifikasi atau rusak.",
+        "project_missing_images_title": "Gambar Hilang",
+        "project_missing_images": "Gambar-gambar berikut tidak dapat ditemukan dan dilewati:\n\n{paths}",
+        "unsaved_changes_title": "Perubahan Belum Disimpan",
+        "unsaved_changes": "Ada perubahan yang belum disimpan. Apakah Anda ingin menyimpan proyek sebelum menutup?",
     },
 }
 

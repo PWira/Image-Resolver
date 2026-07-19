@@ -71,7 +71,10 @@ class App(QMainWindow):
         # Internal states
         self._files: List[str] = []
         self._crop_data: Dict[int, dict] = {}
-        self._crop_updating = False
+        self._crop_updating = True  # Disabled during initialization
+        self._crop_index: Optional[int] = None
+        self._project_dirty = False
+        self._recent_projects: List[str] = []
 
         # Central widget and root layout
         central = QWidget()
@@ -169,8 +172,32 @@ class App(QMainWindow):
             sb.valueChanged.connect(self._crop_manual_update_view)
         self.crop_aspect.currentIndexChanged.connect(self._crop_update_aspect_ratio)
 
+        # Auto-save triggers on setting changes
+        self.conv_format.currentIndexChanged.connect(self._auto_save_temp)
+        self.conv_quality_slider.valueChanged.connect(self._auto_save_temp)
+        self.conv_output_dir.textChanged.connect(self._auto_save_temp)
+        self.conv_width.valueChanged.connect(self._auto_save_temp)
+        self.conv_height.valueChanged.connect(self._auto_save_temp)
+        self.conv_scale.valueChanged.connect(self._auto_save_temp)
+
+        self.crop_format.currentIndexChanged.connect(self._auto_save_temp)
+        self.crop_output_dir.textChanged.connect(self._auto_save_temp)
+        self.crop_radio_same.toggled.connect(self._auto_save_temp)
+        self.crop_same_w.valueChanged.connect(self._auto_save_temp)
+        self.crop_same_h.valueChanged.connect(self._auto_save_temp)
+        self.crop_anchor.currentIndexChanged.connect(self._auto_save_temp)
+        self.crop_aspect.currentIndexChanged.connect(self._auto_save_temp)
+
+        for sb in (self.crop_x, self.crop_y, self.crop_w, self.crop_h):
+            sb.valueChanged.connect(self._auto_save_temp)
+        self.crop_skip_check.toggled.connect(self._auto_save_temp)
+
         # Center on screen
         self._center_window()
+
+        # Enable auto-saving and clear dirty flag after setup
+        self._crop_updating = False
+        self._project_dirty = False
 
     # ── Setup helpers ────────────────────────────────────────
 
@@ -208,6 +235,7 @@ class App(QMainWindow):
         lang = "en"
         palette = "gold"
         custom_accent = ""
+        self._recent_projects = []
         
         if settings_file.exists():
             try:
@@ -216,6 +244,7 @@ class App(QMainWindow):
                     lang = data.get("language", "en")
                     palette = data.get("palette", "gold")
                     custom_accent = data.get("custom_accent", "")
+                    self._recent_projects = data.get("recent_projects", [])
             except Exception:
                 pass
         
@@ -236,7 +265,8 @@ class App(QMainWindow):
         data = {
             "language": self.i18n.language,
             "palette": theme.current_palette_name,
-            "custom_accent": theme.custom_accent_color
+            "custom_accent": theme.custom_accent_color,
+            "recent_projects": self._recent_projects
         }
         try:
             with open(settings_file, "w") as f:
@@ -295,6 +325,63 @@ class App(QMainWindow):
         menu.addAction(self.i18n("about_qif"), self._show_about)
         self.btn_settings.setMenu(menu)
 
+    def _rebuild_project_menu(self):
+        """Create/recreate project menu in correct language."""
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {theme.CARD_BG};
+                color: {theme.TEXT_PRIMARY};
+                border: 1px solid {theme.BORDER};
+            }}
+            QMenu::item:selected {{
+                background-color: {theme.GOLD};
+                color: {theme.BLACK_MATTE};
+            }}
+        """)
+        
+        menu.addAction(self.i18n("open_project"), self._open_project)
+        
+        recent_menu = menu.addMenu(self.i18n("open_recent"))
+        recent_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {theme.CARD_BG};
+                color: {theme.TEXT_PRIMARY};
+                border: 1px solid {theme.BORDER};
+            }}
+            QMenu::item:selected {{
+                background-color: {theme.GOLD};
+                color: {theme.BLACK_MATTE};
+            }}
+        """)
+        
+        recovery_file = Path(_PROJECT_ROOT) / "autosave.qif"
+        if recovery_file.exists():
+            recent_menu.addAction(f"↺ {self.i18n('recovered_session')}", lambda: self._load_project_file(str(recovery_file)))
+            recent_menu.addSeparator()
+
+        valid_recent = []
+        for path in self._recent_projects:
+            if Path(path).exists():
+                valid_recent.append(path)
+        
+        # Clean up stale recent projects
+        if len(valid_recent) != len(self._recent_projects):
+            self._recent_projects = valid_recent
+            self._save_settings()
+            
+        if self._recent_projects:
+            for path in self._recent_projects:
+                p = Path(path)
+                recent_menu.addAction(p.name, lambda f=path: self._load_project_file(f))
+        else:
+            no_recent_action = recent_menu.addAction(self.i18n("no_recent_projects"))
+            no_recent_action.setEnabled(False)
+
+        menu.addSeparator()
+        menu.addAction(self.i18n("save_project"), self._save_project)
+        self.btn_project.setMenu(menu)
+
     def _update_ui_texts(self):
         """Update all UI text labels for the current language."""
         self.setWindowTitle(self.i18n("title"))
@@ -305,6 +392,9 @@ class App(QMainWindow):
         self.btn_crop_mode.setText(self.i18n("crop"))
         self.btn_settings.setText(self.i18n("settings"))
         self._rebuild_settings_menu()
+        
+        self.btn_project.setText(self.i18n("project"))
+        self._rebuild_project_menu()
         
         # Sidebar / Yellow
         self.lbl_pick_images.setText(self.i18n("pick_images"))
@@ -545,6 +635,11 @@ class App(QMainWindow):
         self.mode_group.addButton(self.btn_crop_mode, 1)
         self.mode_group.setExclusive(True)
         self.mode_group.idToggled.connect(self._on_feature_mode_changed)
+
+        # Project Dropdown Button
+        self.btn_project = QPushButton()
+        self.btn_project.setObjectName("settingsBtn")
+        header_layout.addWidget(self.btn_project)
 
         # Settings Dropdown Button
         self.btn_settings = QPushButton()
@@ -850,6 +945,8 @@ class App(QMainWindow):
             return
         if id_ == 0:
             # Convert mode
+            if self.crop_radio_manual.isChecked():
+                self._crop_save_current_settings()
             self.viewport_stack.setCurrentIndex(0)
             self.options_stack.setCurrentIndex(0)
         else:
@@ -941,12 +1038,18 @@ class App(QMainWindow):
             item.setText(p.name)
         item.setData(Qt.UserRole, path)
         self.file_list.addItem(item)
+        self._auto_save_temp()
 
     def _remove_selected(self):
         """Remove selected items from the file list."""
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             return
+        # Save current manual settings before indices shift
+        if self.btn_crop_mode.isChecked() and self.crop_radio_manual.isChecked():
+            self._crop_save_current_settings()
+        self._crop_index = None
+
         rows = sorted([self.file_list.row(item) for item in selected_items], reverse=True)
         for row in rows:
             self.file_list.takeItem(row)
@@ -968,14 +1071,17 @@ class App(QMainWindow):
 
         self._update_count()
         self._auto_load_preview()
+        self._auto_save_temp()
 
     def _clear_all(self):
         """Clear all items from the file list."""
+        self._crop_index = None
         self.file_list.clear()
         self._files.clear()
         self._crop_data.clear()
         self._clear_viewport()
         self._update_count()
+        self._auto_save_temp()
 
     def _update_count(self):
         """Update the file count label."""
@@ -1008,6 +1114,8 @@ class App(QMainWindow):
         if not checked:
             return
         is_manual = (id_ == 1)
+        if not is_manual:
+            self._crop_save_current_settings()
         self.crop_same_panel.setVisible(not is_manual)
         self.crop_manual_panel.setVisible(is_manual)
         
@@ -1053,6 +1161,17 @@ class App(QMainWindow):
         """Load image at the given index into the one-by-one interactive view."""
         if index < 0 or index >= self.file_list.count():
             return
+
+        # Save settings for the previously loaded manual crop image first
+        if self._crop_index is not None and 0 <= self._crop_index < self.file_list.count():
+            self._crop_data[self._crop_index] = {
+                "x": self.crop_x.value(),
+                "y": self.crop_y.value(),
+                "w": self.crop_w.value(),
+                "h": self.crop_h.value(),
+                "skip": self.crop_skip_check.isChecked(),
+            }
+
         self._crop_index = index
 
         # Update navigation label
@@ -1126,6 +1245,7 @@ class App(QMainWindow):
         self.crop_same_w.setValue(w)
         self.crop_same_h.setValue(h)
         self._crop_updating = False
+        self._auto_save_temp()
 
     def _crop_same_update_view(self):
         """Update same-size preview when spinboxes or anchor change."""
@@ -1161,6 +1281,7 @@ class App(QMainWindow):
         self.crop_w.setValue(w)
         self.crop_h.setValue(h)
         self._crop_updating = False
+        self._auto_save_temp()
 
     def _crop_manual_update_view(self):
         """Update one-by-one view when spinboxes change."""
@@ -1346,4 +1467,247 @@ class App(QMainWindow):
             self._signals.finished.emit()
 
         threading.Thread(target=task, daemon=True).start()
+
+    # ── Project Save / Load & Recovery Management ────────────
+
+    def _auto_save_temp(self):
+        """Auto-save the project state to a temp recovery file."""
+        if self._crop_updating:
+            return
+        self._project_dirty = True
+        try:
+            from src.project_manager import encrypt_project_data
+            state = self._get_project_state()
+            encrypted = encrypt_project_data(state)
+            recovery_file = Path(_PROJECT_ROOT) / "autosave.qif"
+            with open(recovery_file, "wb") as f:
+                f.write(encrypted)
+        except Exception:
+            pass
+
+    def _add_to_recent_projects(self, filepath: str):
+        """Add a project file to the recent projects list, keeping only the 5 most recent."""
+        filepath = str(Path(filepath).resolve())
+        if filepath in self._recent_projects:
+            self._recent_projects.remove(filepath)
+        self._recent_projects.insert(0, filepath)
+        self._recent_projects = self._recent_projects[:5]
+        self._save_settings()
+        self._rebuild_project_menu()
+
+    def _get_project_state(self) -> dict:
+        """Get the current project state for serialization."""
+        return {
+            "version": "1.0",
+            "files": self._files,
+            "crop_data": {str(k): v for k, v in self._crop_data.items()},
+            "settings": {
+                "convert_format": self.conv_format.currentText(),
+                "convert_quality": self.conv_quality_slider.value(),
+                "convert_output_dir": self.conv_output_dir.text(),
+                "convert_width": self.conv_width.value(),
+                "convert_height": self.conv_height.value(),
+                "convert_scale": self.conv_scale.value(),
+                "crop_format": self.crop_format.currentText(),
+                "crop_output_dir": self.crop_output_dir.text(),
+                "crop_is_manual": self.crop_radio_manual.isChecked(),
+                "crop_same_w": self.crop_same_w.value(),
+                "crop_same_h": self.crop_same_h.value(),
+                "crop_anchor": self.crop_anchor.currentIndex(),
+                "crop_aspect": self.crop_aspect.currentIndex(),
+            }
+        }
+
+    def _apply_project_state(self, state: dict):
+        """Restore the application state from a project dictionary."""
+        self._crop_updating = True
+        self._clear_all()
+        
+        missing_files = []
+        for f in state.get("files", []):
+            if Path(f).exists():
+                self._add_path(f)
+            else:
+                missing_files.append(f)
+        self._update_count()
+
+        crop_data_raw = state.get("crop_data", {})
+        self._crop_data = {}
+        for k, v in crop_data_raw.items():
+            try:
+                self._crop_data[int(k)] = v
+            except ValueError:
+                pass
+
+        settings = state.get("settings", {})
+        
+        if "convert_format" in settings:
+            self.conv_format.setCurrentText(settings["convert_format"])
+        if "convert_quality" in settings:
+            self.conv_quality_slider.setValue(settings["convert_quality"])
+        if "convert_output_dir" in settings:
+            self.conv_output_dir.setText(settings["convert_output_dir"])
+        if "convert_width" in settings:
+            self.conv_width.setValue(settings["convert_width"])
+        if "convert_height" in settings:
+            self.conv_height.setValue(settings["convert_height"])
+        if "convert_scale" in settings:
+            self.conv_scale.setValue(settings["convert_scale"])
+
+        if "crop_format" in settings:
+            self.crop_format.setCurrentText(settings["crop_format"])
+        if "crop_output_dir" in settings:
+            self.crop_output_dir.setText(settings["crop_output_dir"])
+        
+        is_manual = settings.get("crop_is_manual", False)
+        if is_manual:
+            self.crop_radio_manual.setChecked(True)
+        else:
+            self.crop_radio_same.setChecked(True)
+        self._crop_mode_changed(1 if is_manual else 0, True)
+
+        if "crop_same_w" in settings:
+            self.crop_same_w.setValue(settings["crop_same_w"])
+        if "crop_same_h" in settings:
+            self.crop_same_h.setValue(settings["crop_same_h"])
+        if "crop_anchor" in settings:
+            self.crop_anchor.setCurrentIndex(settings["crop_anchor"])
+        if "crop_aspect" in settings:
+            self.crop_aspect.setCurrentIndex(settings["crop_aspect"])
+
+        self._crop_updating = False
+        self._auto_load_preview()
+
+        if not is_manual and self.file_list.currentRow() >= 0:
+            path = self.file_list.item(self.file_list.currentRow()).data(Qt.UserRole)
+            self._crop_same_load_preview(path)
+
+        if missing_files:
+            missing_paths_str = "\n".join(missing_files)
+            QMessageBox.warning(
+                self,
+                self.i18n("project_missing_images_title"),
+                self.i18n("project_missing_images", paths=missing_paths_str)
+            )
+            for f in missing_files:
+                self._log(f"{self.i18n('log_error')} File not found: {f}", "err")
+
+    def _save_project(self):
+        """Show Save Project dialog, encrypt state, and write to disk."""
+        if self.btn_crop_mode.isChecked() and self.crop_radio_manual.isChecked():
+            self._crop_save_current_settings()
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            self.i18n("save_project"),
+            "",
+            self.i18n("project_files")
+        )
+        if not filename:
+            return
+
+        if not filename.endswith(".qif"):
+            filename += ".qif"
+
+        try:
+            from src.project_manager import encrypt_project_data
+            state = self._get_project_state()
+            encrypted = encrypt_project_data(state)
+            
+            with open(filename, "wb") as f:
+                f.write(encrypted)
+
+            self._project_dirty = False
+            self._add_to_recent_projects(filename)
+            self._log(f"{self.i18n('log_success')} {self.i18n('project_saved')}: {Path(filename).name}", "ok")
+            QMessageBox.information(self, self.i18n("info_done"), self.i18n("project_saved"))
+        except Exception as e:
+            self._log(f"{self.i18n('log_error')} Error saving project: {e}", "err")
+            QMessageBox.critical(self, self.i18n("error_title"), f"Error saving project: {e}")
+
+    def _open_project(self):
+        """Show Open Project dialog and load it."""
+        if self._project_dirty:
+            reply = QMessageBox.question(
+                self,
+                self.i18n("unsaved_changes_title"),
+                self.i18n("unsaved_changes"),
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Save
+            )
+            if reply == QMessageBox.Save:
+                self._save_project()
+                if self._project_dirty:
+                    return
+            elif reply == QMessageBox.Cancel:
+                return
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            self.i18n("open_project"),
+            "",
+            self.i18n("project_files")
+        )
+        if filename:
+            self._load_project_file(filename)
+
+    def _load_project_file(self, filepath: str):
+        """Decrypt, validate, and load project file."""
+        path = Path(filepath)
+        if not path.exists():
+            return
+
+        try:
+            from src.project_manager import decrypt_project_data
+            from cryptography.fernet import InvalidToken
+            
+            with open(path, "rb") as f:
+                encrypted_data = f.read()
+
+            try:
+                state = decrypt_project_data(encrypted_data)
+            except (InvalidToken, Exception):
+                QMessageBox.critical(
+                    self,
+                    self.i18n("project_corrupted_title"),
+                    self.i18n("project_corrupted")
+                )
+                self._log(f"{self.i18n('log_error')} {self.i18n('project_corrupted')}", "err")
+                return
+
+            self._apply_project_state(state)
+            
+            if path.name != "autosave.qif":
+                self._project_dirty = False
+                self._add_to_recent_projects(str(path))
+                self._log(f"{self.i18n('log_success')} {self.i18n('project_loaded')}: {path.name}", "ok")
+            else:
+                self._project_dirty = True
+                self._log(f"{self.i18n('log_success')} Temporary session auto-recovered", "ok")
+
+        except Exception as e:
+            self._log(f"{self.i18n('log_error')} Error loading project: {e}", "err")
+            QMessageBox.critical(self, self.i18n("error_title"), f"Error loading project: {e}")
+
+    def closeEvent(self, event):
+        """Handle window close event with unsaved changes prompt."""
+        if self._project_dirty:
+            reply = QMessageBox.question(
+                self,
+                self.i18n("unsaved_changes_title"),
+                self.i18n("unsaved_changes"),
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Save
+            )
+            if reply == QMessageBox.Save:
+                self._save_project()
+                if self._project_dirty:
+                    event.ignore()
+                    return
+            elif reply == QMessageBox.Cancel:
+                event.ignore()
+                return
+
+        self._auto_save_temp()
+        event.accept()
 
