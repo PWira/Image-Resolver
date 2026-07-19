@@ -293,6 +293,31 @@ def get_stylesheet() -> str:
         border-color: {GOLD};
     }}
 
+    QSpinBox::up-button, QSpinBox::down-button {{
+        width: 0px;
+        border: none;
+        background: transparent;
+    }}
+
+    QPushButton#flatArrowBtn {{
+        background-color: transparent;
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER};
+        border-radius: {BORDER_RADIUS}px;
+        padding: 0;
+        font-weight: bold;
+        font-size: 11pt;
+    }}
+
+    QPushButton#flatArrowBtn:hover {{
+        background-color: rgba(255, 255, 255, 0.05);
+        border-color: {GOLD};
+    }}
+
+    QPushButton#flatArrowBtn:pressed {{
+        background-color: rgba(255, 255, 255, 0.02);
+    }}
+
     /* ── Combo Box ────────────────────────────────────── */
     QComboBox {{
         background-color: {DARK_BG};

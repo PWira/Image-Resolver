@@ -2,20 +2,37 @@
 Reusable Qt UI components for Quick Image Formatting.
 """
 
-from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFrame, QSizePolicy,
-    QGraphicsView, QGraphicsScene,
+    QGraphicsView, QGraphicsScene, QSpinBox,
 )
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, Property, QRectF, QPointF, QSizeF
-from PySide6.QtGui import QIcon, QPixmap, QImage, QPen, QBrush, QColor, QPainter
-from PIL import Image
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QSizeF
+from PySide6.QtGui import QPixmap, QImage, QPen, QBrush, QColor, QPainter
 
 from src.constants import INPUT_EXTS
 import src.theme as theme
+
+
+def create_checkerboard_brush(size=16):
+    """Create a checkerboard brush (transparent grid) based on the active theme."""
+    is_light = (getattr(theme, "current_palette_name", "gold") == "light")
+    if is_light:
+        color1 = QColor("#FFFFFF")
+        color2 = QColor("#EAEAEA")
+    else:
+        color1 = QColor("#181818")
+        color2 = QColor("#222222")
+    pixmap = QPixmap(size, size)
+    pixmap.fill(color1)
+    painter = QPainter(pixmap)
+    painter.fillRect(0, 0, size // 2, size // 2, color2)
+    painter.fillRect(size // 2, size // 2, size // 2, size // 2, color2)
+    painter.end()
+    return QBrush(pixmap)
+
 
 
 def int_or_none(val: str) -> Optional[int]:
@@ -227,6 +244,13 @@ class InteractiveCropView(QGraphicsView):
         # Prevent signal loops
         self._locked = False
 
+    def drawBackground(self, painter, rect):
+        """Draw a checkerboard transparent grid only within the scene (image canvas) bounds."""
+        painter.fillRect(rect, QColor("#000000"))
+        sr = self.sceneRect()
+        if not sr.isNull() and self._pm_item:
+            painter.fillRect(sr, create_checkerboard_brush())
+
     # ── public API ────────────────────────────────────────
 
     def load_image(self, pil_img):
@@ -395,26 +419,42 @@ class InteractiveCropView(QGraphicsView):
     # ── mouse events ─────────────────────────────────────
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self._panning = True
+            self._pan_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+
         if event.button() != Qt.LeftButton or not self._pm_item:
             return super().mousePressEvent(event)
         pos = self.mapToScene(event.pos())
-        if not self._bounds.contains(pos):
-            return
 
         h = self._hit(pos)
         if h:
             self._st, self._hid = 3, h
-        elif self._crop.contains(pos) and self._can_move:
-            self._st = 2
+        elif self._bounds.contains(pos):
+            if self._crop.contains(pos) and self._can_move:
+                self._st = 2
+            else:
+                self._st = 1
+                self._crop = QRectF(pos, QSizeF(0, 0))
         else:
-            self._st = 1
-            self._crop = QRectF(pos, QSizeF(0, 0))
+            return
 
         self._m0 = pos
         self._r0 = QRectF(self._crop)
         event.accept()
 
     def mouseMoveEvent(self, event):
+        if getattr(self, "_panning", False):
+            delta = event.pos() - self._pan_start
+            self._pan_start = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+
         pos = self.mapToScene(event.pos())
         if self._st == 0:
             if not self._pm_item:
@@ -448,6 +488,12 @@ class InteractiveCropView(QGraphicsView):
         event.accept()
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MiddleButton and getattr(self, "_panning", False):
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+            event.accept()
+            return
+
         if event.button() == Qt.LeftButton and self._st:
             if self._crop.width() < self._MIN or self._crop.height() < self._MIN:
                 self._crop = QRectF(self._bounds)
@@ -456,6 +502,36 @@ class InteractiveCropView(QGraphicsView):
             self._redraw()
             self._emit()
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.resetTransform()
+            event.accept()
+
+    def wheelEvent(self, event):
+        zoom_in_factor = 1.15
+        zoom_out_factor = 1.0 / zoom_in_factor
+
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        old_pos = self.mapToScene(pos)
+
+        angle = event.angleDelta().y()
+        transform = self.transform()
+        current_zoom = transform.m11()
+
+        if angle > 0:
+            if current_zoom < 50.0:
+                self.scale(zoom_in_factor, zoom_in_factor)
+        elif angle < 0:
+            if current_zoom > 0.1:
+                self.scale(zoom_out_factor, zoom_out_factor)
+        else:
+            return
+
+        new_pos = self.mapToScene(pos)
+        delta = new_pos - old_pos
+        self.translate(delta.x(), delta.y())
+
 
     # ── drag operations ──────────────────────────────────
 
@@ -542,7 +618,15 @@ class FittedImageView(QGraphicsView):
         self._pil_img = None
         self._pm_item = None
 
+    def drawBackground(self, painter, rect):
+        """Draw a checkerboard transparent grid only within the scene (image canvas) bounds."""
+        painter.fillRect(rect, QColor("#000000"))
+        sr = self.sceneRect()
+        if not sr.isNull() and self._pm_item:
+            painter.fillRect(sr, create_checkerboard_brush())
+
     def load_image(self, pil_img):
+        self.resetTransform()
         self._pil_img = pil_img
         self._scene.clear()
         self._pm_item = None
@@ -568,8 +652,122 @@ class FittedImageView(QGraphicsView):
         self._scene.clear()
         self._pm_item = None
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self._panning = True
+            self._pan_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if getattr(self, "_panning", False):
+            delta = event.pos() - self._pan_start
+            self._pan_start = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MiddleButton and getattr(self, "_panning", False):
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.resetTransform()
+            event.accept()
+
+    def wheelEvent(self, event):
+        zoom_in_factor = 1.15
+        zoom_out_factor = 1.0 / zoom_in_factor
+
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        old_pos = self.mapToScene(pos)
+
+        angle = event.angleDelta().y()
+        transform = self.transform()
+        current_zoom = transform.m11()
+
+        if angle > 0:
+            if current_zoom < 50.0:
+                self.scale(zoom_in_factor, zoom_in_factor)
+        elif angle < 0:
+            if current_zoom > 0.1:
+                self.scale(zoom_out_factor, zoom_out_factor)
+        else:
+            return
+
+        new_pos = self.mapToScene(pos)
+        delta = new_pos - old_pos
+        self.translate(delta.x(), delta.y())
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._pil_img:
             self.load_image(self._pil_img)
+
+
+class PlusMinusSpinBox(QWidget):
+    valueChanged = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.btn_minus = QPushButton("-")
+        self.btn_minus.setObjectName("flatArrowBtn")
+        self.btn_minus.setFixedWidth(24)
+        self.btn_minus.setFixedHeight(28)
+
+        self.spin = QSpinBox()
+
+        self.btn_plus = QPushButton("+")
+        self.btn_plus.setObjectName("flatArrowBtn")
+        self.btn_plus.setFixedWidth(24)
+        self.btn_plus.setFixedHeight(28)
+
+        layout.addWidget(self.btn_minus)
+        layout.addWidget(self.spin, 1)
+        layout.addWidget(self.btn_plus)
+
+        self.btn_minus.clicked.connect(self._on_minus)
+        self.btn_plus.clicked.connect(self._on_plus)
+        self.spin.valueChanged.connect(self.valueChanged.emit)
+
+    def value(self) -> int:
+        return self.spin.value()
+
+    def setValue(self, val: int):
+        self.spin.setValue(val)
+
+    def setRange(self, min_val: int, max_val: int):
+        self.spin.setRange(min_val, max_val)
+
+    def setSuffix(self, text: str):
+        self.spin.setSuffix(text)
+
+    def setSpecialValueText(self, text: str):
+        self.spin.setSpecialValueText(text)
+
+    def setSingleStep(self, step: int):
+        self.spin.setSingleStep(step)
+
+    def singleStep(self) -> int:
+        return self.spin.singleStep()
+
+    def _on_minus(self):
+        self.spin.setValue(self.spin.value() - self.spin.singleStep())
+
+    def _on_plus(self):
+        self.spin.setValue(self.spin.value() + self.spin.singleStep())
+
 

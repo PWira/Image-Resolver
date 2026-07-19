@@ -12,22 +12,19 @@ from typing import List, Optional, Dict
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QTabWidget, QLabel, QPushButton, QComboBox, QSlider, QSpinBox,
-    QLineEdit, QListWidget, QListWidgetItem, QFileDialog, QMessageBox,
-    QProgressBar, QTextEdit, QCheckBox, QRadioButton, QButtonGroup,
-    QFrame, QSizePolicy, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QGraphicsRectItem, QAbstractItemView, QGroupBox, QApplication,
-    QSplitter, QScrollArea, QDialog, QStackedWidget, QMenu, QColorDialog,
+    QLabel, QPushButton, QComboBox, QSlider, QLineEdit, QListWidget,
+    QListWidgetItem, QFileDialog, QMessageBox, QProgressBar, QTextEdit,
+    QCheckBox, QRadioButton, QButtonGroup, QFrame, QAbstractItemView,
+    QApplication, QSplitter, QScrollArea, QDialog, QStackedWidget, QMenu,
+    QColorDialog,
 )
-from PySide6.QtCore import Qt, Signal, QObject, QRectF, QPointF, QTimer
-from PySide6.QtGui import (
-    QPixmap, QImage, QPen, QBrush, QColor, QIcon, QPainter, QCursor,
-)
-from PIL import Image, ImageQt
+from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtGui import QPixmap, QColor, QIcon
+from PIL import Image
 
 from src.constants import OUTPUT_FORMATS, EXT_MAP, INPUT_EXTS
 from src.image_processor import open_image, save_image, do_resize, do_crop, do_center_crop
-from src.ui_components import int_or_none, float_or_none, file_filter_string, CollapsibleSection, Separator, InteractiveCropView, FittedImageView
+from src.ui_components import file_filter_string, Separator, InteractiveCropView, FittedImageView, PlusMinusSpinBox
 from src.localization import get_i18n, set_language
 import src.theme as theme
 
@@ -283,10 +280,21 @@ class App(QMainWindow):
                 background-color: {theme.CARD_BG};
                 color: {theme.TEXT_PRIMARY};
                 border: 1px solid {theme.BORDER};
+                min-width: 240px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px;
+                border-radius: 4px;
             }}
             QMenu::item:selected {{
                 background-color: {theme.GOLD};
                 color: {theme.BLACK_MATTE};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {theme.BORDER};
+                margin: 4px 6px;
             }}
         """
         menu.setStyleSheet(ss)
@@ -572,17 +580,17 @@ class App(QMainWindow):
         rg = QGridLayout()
         rg.setSpacing(6)
         self.lbl_width  = QLabel()
-        self.conv_width = QSpinBox()
+        self.conv_width = PlusMinusSpinBox()
         self.conv_width.setRange(0, 99999)
         self.conv_width.setSpecialValueText("\u2014")
         self.conv_width.setSuffix(" px")
         self.lbl_height  = QLabel()
-        self.conv_height = QSpinBox()
+        self.conv_height = PlusMinusSpinBox()
         self.conv_height.setRange(0, 99999)
         self.conv_height.setSpecialValueText("\u2014")
         self.conv_height.setSuffix(" px")
         self.lbl_scale  = QLabel()
-        self.conv_scale = QSpinBox()
+        self.conv_scale = PlusMinusSpinBox()
         self.conv_scale.setRange(0, 10000)
         self.conv_scale.setSpecialValueText("\u2014")
         self.conv_scale.setSuffix(" %")
@@ -623,12 +631,12 @@ class App(QMainWindow):
         sg = QGridLayout()
         sg.setSpacing(6)
         self.lbl_same_w  = QLabel()
-        self.crop_same_w = QSpinBox()
+        self.crop_same_w = PlusMinusSpinBox()
         self.crop_same_w.setRange(1, 99999)
         self.crop_same_w.setValue(800)
         self.crop_same_w.setSuffix(" px")
         self.lbl_same_h  = QLabel()
-        self.crop_same_h = QSpinBox()
+        self.crop_same_h = PlusMinusSpinBox()
         self.crop_same_h.setRange(1, 99999)
         self.crop_same_h.setValue(600)
         self.crop_same_h.setSuffix(" px")
@@ -650,17 +658,17 @@ class App(QMainWindow):
         cg = QGridLayout()
         cg.setSpacing(6)
         self.lbl_manual_x     = QLabel()
-        self.crop_x           = QSpinBox()
+        self.crop_x           = PlusMinusSpinBox()
         self.crop_x.setRange(0, 99999)
         self.lbl_manual_y     = QLabel()
-        self.crop_y           = QSpinBox()
+        self.crop_y           = PlusMinusSpinBox()
         self.crop_y.setRange(0, 99999)
         self.lbl_manual_w     = QLabel()
-        self.crop_w           = QSpinBox()
+        self.crop_w           = PlusMinusSpinBox()
         self.crop_w.setRange(1, 99999)
         self.crop_w.setValue(800)
         self.lbl_manual_h     = QLabel()
-        self.crop_h           = QSpinBox()
+        self.crop_h           = PlusMinusSpinBox()
         self.crop_h.setRange(1, 99999)
         self.crop_h.setValue(600)
         self.lbl_manual_shape = QLabel()
