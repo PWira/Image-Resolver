@@ -163,14 +163,14 @@ def _apply_palette(palette: dict):
 
 # ── Fonts ────────────────────────────────────────────────────
 
-FONT_FAMILY  = "Segoe UI"
-FONT_SIZE    = 11             # Base font size in points
-FONT_SIZE_SM = 9              # Small labels / hints
-FONT_SIZE_LG = 14             # Section headers
+FONT_FAMILY  = "Asta Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+FONT_SIZE    = 10             # Base font size in points
+FONT_SIZE_SM = 8              # Small labels / hints
+FONT_SIZE_LG = 12             # Section headers
 
 # ── Dimensions ───────────────────────────────────────────────
 
-BORDER_RADIUS = 6             # Rounded corner radius in pixels
+BORDER_RADIUS = 4             # Rounded corner radius in pixels
 SPACING       = 8             # Default spacing between elements
 ICON_SIZE     = 18            # Toolbar icon size
 
@@ -230,21 +230,27 @@ def get_stylesheet() -> str:
 
     /* ── Buttons ──────────────────────────────────────── */
     QPushButton {{
-        background-color: {BORDER};
+        background-color: rgba(255, 255, 255, 0.05);
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER};
         border-radius: {BORDER_RADIUS}px;
-        padding: 8px 18px;
-        font-weight: bold;
+        padding: 6px 14px;
+        font-weight: 500;
     }}
 
     QPushButton:hover {{
-        background-color: #333333;
-        border-color: {TEXT_DIM};
+        background-color: rgba(255, 255, 255, 0.1);
+        border-color: {GOLD};
     }}
 
     QPushButton:pressed {{
-        background-color: #404040;
+        background-color: rgba(255, 255, 255, 0.03);
+    }}
+
+    QPushButton:disabled {{
+        background-color: transparent;
+        color: {TEXT_DIM};
+        border: 1px solid {BORDER};
     }}
 
     /* Primary action buttons (gold) */
@@ -252,9 +258,9 @@ def get_stylesheet() -> str:
         background-color: {GOLD};
         color: {BLACK_MATTE};
         border: none;
-        padding: 12px 36px;
-        font-size: {FONT_SIZE_LG}pt;
-        font-weight: bold;
+        padding: 10px 24px;
+        font-size: {FONT_SIZE}pt;
+        font-weight: 600;
         border-radius: {BORDER_RADIUS}px;
     }}
 
@@ -267,8 +273,9 @@ def get_stylesheet() -> str:
     }}
 
     QPushButton#primaryBtn:disabled {{
-        background-color: #3A3520;
+        background-color: rgba(255, 255, 255, 0.02);
         color: {TEXT_DIM};
+        border: 1px solid {BORDER};
     }}
 
     /* ── Inputs ───────────────────────────────────────── */
@@ -526,16 +533,16 @@ def get_stylesheet() -> str:
 
     /* ── Splitter ─────────────────────────────────────── */
     QSplitter::handle {{
-        background-color: {BORDER};
+        background-color: {DARK_BG};
     }}
     QSplitter::handle:hover {{
         background-color: {GOLD};
     }}
     QSplitter::handle:vertical {{
-        height: 6px;
+        height: 3px;
     }}
     QSplitter::handle:horizontal {{
-        width: 6px;
+        width: 3px;
     }}
 
     /* ── Scroll Area ──────────────────────────────────── */
@@ -558,8 +565,9 @@ def get_stylesheet() -> str:
     /* ── Custom Layout Restructuring Styles ───────────── */
     QFrame#headerPanel {{
         background-color: {CARD_BG};
-        border: 1px solid {BORDER};
-        border-radius: {BORDER_RADIUS}px;
+        border: none;
+        border-bottom: 1px solid {BORDER};
+        border-radius: 0px;
     }}
 
     QPushButton#featureBtn {{
@@ -568,7 +576,7 @@ def get_stylesheet() -> str:
         border: 1px solid transparent;
         border-radius: 4px;
         padding: 6px 18px;
-        font-weight: bold;
+        font-weight: 500;
     }}
 
     QPushButton#featureBtn:hover {{
@@ -588,7 +596,7 @@ def get_stylesheet() -> str:
         border: 1px solid {BORDER};
         border-radius: 4px;
         padding: 6px 14px;
-        font-weight: bold;
+        font-weight: 500;
     }}
 
     QPushButton#settingsBtn:hover {{

@@ -10,10 +10,11 @@ TRANSLATIONS = {
     "en": {
         # Window
         "title": "Quick Image Formatting",
+        "file_menu": "File",
         "settings": "Settings",
         "about_qif": "About QIF",
         "language": "Language",
-        "convert": "Convert",
+        "convert": "Convert & Resize",
         "crop": "Crop",
         "color_palette": "Color Palette",
         "custom_color": "Custom Accent Color...",
@@ -42,14 +43,16 @@ TRANSLATIONS = {
         "height": "Height",
         "resize_percent": "Resize by %",
         "include_subfolders": "Include subfolders",
-        "convert_now": "Convert Now",
+        "convert_now": "EXPORT",
         "files_in_list": "images ready",
         "no_files": "No images added yet. Click \"Add Files\" or \"Add Folder\" to start.",
 
         # Crop tab
+        "crop_section": "Crop",
         "crop_mode": "How do you want to crop?",
+        "crop_none": "No crop",
         "crop_same_size": "Same size for all images",
-        "crop_one_by_one": "Crop each image manually",
+        "crop_one_by_one": "Crop each manually",
         "crop_width": "Crop Width",
         "crop_height": "Crop Height",
         "crop_from": "Start From",
@@ -64,7 +67,7 @@ TRANSLATIONS = {
         "crop_next": "Next",
         "crop_image_n_of": "Image {current} of {total}",
         "crop_skip": "Skip this image",
-        "crop_save_all": "Crop & Save All",
+        "crop_save_all": "EXPORT",
         "crop_no_image": "No image loaded yet",
         "crop_hint": "Click and drag to select the area you want to keep",
 
@@ -114,10 +117,11 @@ TRANSLATIONS = {
     "id": {
         # Window
         "title": "Quick Image Formatting",
+        "file_menu": "File",
         "settings": "Pengaturan",
         "about_qif": "Tentang QIF",
         "language": "Bahasa",
-        "convert": "Konversi",
+        "convert": "Konversi & Ubah Ukuran",
         "crop": "Potong",
         "color_palette": "Tema Warna",
         "custom_color": "Warna Aksen Kustom...",
@@ -146,14 +150,16 @@ TRANSLATIONS = {
         "height": "Tinggi",
         "resize_percent": "Ubah ukuran %",
         "include_subfolders": "Masuk subfolder",
-        "convert_now": "Konversi Sekarang",
+        "convert_now": "EXPORT",
         "files_in_list": "gambar siap",
         "no_files": "Belum ada gambar. Klik \"Tambah File\" atau \"Tambah Folder\".",
 
         # Crop tab
+        "crop_section": "Potong",
         "crop_mode": "Bagaimana cara potongnya?",
-        "crop_same_size": "Ukuran sama untuk semua gambar",
-        "crop_one_by_one": "Potong setiap gambar satu per satu",
+        "crop_none": "Tanpa crop",
+        "crop_same_size": "Ukuran sama untuk semua",
+        "crop_one_by_one": "Potong tiap gambar satu per satu",
         "crop_width": "Lebar Potong",
         "crop_height": "Tinggi Potong",
         "crop_from": "Mulai Dari",
@@ -168,7 +174,7 @@ TRANSLATIONS = {
         "crop_next": "Berikutnya",
         "crop_image_n_of": "Gambar {current} dari {total}",
         "crop_skip": "Lewati gambar ini",
-        "crop_save_all": "Potong & Simpan Semua",
+        "crop_save_all": "EXPORT",
         "crop_no_image": "Belum ada gambar",
         "crop_hint": "Klik dan seret untuk memilih area yang ingin disimpan",
 

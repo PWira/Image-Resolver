@@ -1,9 +1,7 @@
 """
 Main application window for Quick Image Formatting (PySide6 / Qt).
 
-Two tabs:
-  1. Convert Images — unified single + batch workflow
-  2. Crop Images — batch same-size or manual one-by-one crop
+Unified workflow: import images -> configure format, resize, crop -> EXPORT
 """
 
 import traceback
@@ -34,155 +32,157 @@ from src.localization import get_i18n, set_language
 import src.theme as theme
 
 
-
-if hasattr(sys, '_MEIPASS'):
+if hasattr(sys, "_MEIPASS"):
     _PROJECT_ROOT = Path(sys._MEIPASS)
 else:
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-
-# ── Signal bridge for thread-safe GUI updates ────────────────
 class _WorkerSignals(QObject):
-    """Signals emitted by background worker threads."""
-    log = Signal(str, str)           # (message, tag)
-    progress = Signal(int)           # 0-100
+    log = Signal(str, str)
+    progress = Signal(int)
     finished = Signal()
 
 
-# ── Main Window ──────────────────────────────────────────────
+class ProgressDialog(QDialog):
+    def __init__(self, parent=None, title_text="Export Progress"):
+        super().__init__(parent)
+        self.setWindowTitle(title_text)
+        self.setMinimumSize(450, 300)
+        self.resize(500, 320)
+        self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.CustomizeWindowHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        self.status_label = QLabel("Exporting images...")
+        self.status_label.setObjectName("headerLabel")
+        layout.addWidget(self.status_label)
+
+        prog_layout = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p%")
+        self.progress_pct = QLabel("0%")
+        self.progress_pct.setFixedWidth(36)
+        self.progress_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        prog_layout.addWidget(self.progress_bar)
+        prog_layout.addWidget(self.progress_pct)
+        layout.addLayout(prog_layout)
+
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setObjectName("logArea")
+        layout.addWidget(self.log_text, stretch=1)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self.btn_close = QPushButton("Close")
+        self.btn_close.setObjectName("primaryBtn")
+        self.btn_close.setEnabled(False)
+        self.btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_close)
+        layout.addLayout(btn_row)
+
+    def append_log(self, msg: str, tag: str = ""):
+        self.log_text.append(msg)
+
+    def set_progress(self, value: int):
+        self.progress_bar.setValue(value)
+        self.progress_pct.setText(f"{value}%")
+
+    def on_finished(self, done_text: str = "Done!"):
+        self.status_label.setText(done_text)
+        self.set_progress(100)
+        self.btn_close.setEnabled(True)
+
 
 class App(QMainWindow):
-    """Main application window."""
+    CROP_NONE   = 0
+    CROP_SAME   = 1
+    CROP_MANUAL = 2
 
     def __init__(self):
         super().__init__()
-        # Load language and palette settings first
         self._load_settings()
-
         self.setWindowTitle(self.i18n("title"))
-        self.setMinimumSize(820, 680)
-        self.resize(880, 720)
+        self.setMinimumSize(960, 600)
+        self.resize(1020, 680)
         self._set_icon()
-
-        # Apply theme stylesheet dynamically
         self.setStyleSheet(theme.get_stylesheet())
 
-        # Internal states
         self._files: List[str] = []
         self._crop_data: Dict[int, dict] = {}
-        self._crop_updating = True  # Disabled during initialization
+        self._crop_updating = True
         self._crop_index: Optional[int] = None
         self._project_dirty = False
         self._recent_projects: List[str] = []
 
-        # Central widget and root layout
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(10)
 
-        # 1. Green Header (Top Panel)
         self._build_header(root_layout)
 
-        # 2. Splitters for Yellow, Grey, Blue, Red
         main_splitter = QSplitter(Qt.Horizontal)
         root_layout.addWidget(main_splitter, stretch=1)
 
-        # Yellow Sidebar Container (Left Panel)
         sidebar_widget = QWidget()
         self._build_sidebar(sidebar_widget)
         main_splitter.addWidget(sidebar_widget)
 
-        # Right area container (contains Grey + Blue top, Red bottom)
-        right_splitter = QSplitter(Qt.Vertical)
-        main_splitter.addWidget(right_splitter)
-
-        # Top Right Splitter (Grey Viewport Left, Blue Options Right)
         top_right_splitter = QSplitter(Qt.Horizontal)
-        right_splitter.addWidget(top_right_splitter)
+        main_splitter.addWidget(top_right_splitter)
 
-        # Grey Viewport Stack
         self.viewport_stack = QStackedWidget()
         self.convert_preview = FittedImageView()
         self.crop_same_view = InteractiveCropView()
         self.crop_manual_view = InteractiveCropView()
-        self.viewport_stack.addWidget(self.convert_preview)   # Index 0
-        self.viewport_stack.addWidget(self.crop_same_view)     # Index 1
-        self.viewport_stack.addWidget(self.crop_manual_view)   # Index 2
+        self.viewport_stack.addWidget(self.convert_preview)
+        self.viewport_stack.addWidget(self.crop_same_view)
+        self.viewport_stack.addWidget(self.crop_manual_view)
         top_right_splitter.addWidget(self.viewport_stack)
 
-        # Blue Options Stack
-        self.options_stack = QStackedWidget()
-        
-        # Convert options page (wrapped in scroll area)
-        conv_scroll = QScrollArea()
-        conv_scroll.setWidgetResizable(True)
-        conv_scroll.setFrameShape(QFrame.NoFrame)
-        conv_widget = QWidget()
-        self._build_convert_options(conv_widget)
-        conv_scroll.setWidget(conv_widget)
-        self.options_stack.addWidget(conv_scroll) # Index 0
-        
-        # Crop options page (wrapped in scroll area)
-        crop_scroll = QScrollArea()
-        crop_scroll.setWidgetResizable(True)
-        crop_scroll.setFrameShape(QFrame.NoFrame)
-        crop_widget = QWidget()
-        self._build_crop_options(crop_widget)
-        crop_scroll.setWidget(crop_widget)
-        self.options_stack.addWidget(crop_scroll) # Index 1
-        
-        top_right_splitter.addWidget(self.options_stack)
+        unified_scroll = QScrollArea()
+        unified_scroll.setWidgetResizable(True)
+        unified_scroll.setFrameShape(QFrame.NoFrame)
+        unified_scroll.setMinimumWidth(300)
+        unified_widget = QWidget()
+        self._build_unified_options(unified_widget)
+        unified_scroll.setWidget(unified_widget)
+        top_right_splitter.addWidget(unified_scroll)
 
-        # Red Log and Progress Panel (Bottom)
-        log_container = QWidget()
-        log_layout = QVBoxLayout(log_container)
-        log_layout.setContentsMargins(0, 0, 0, 0)
-        log_layout.setSpacing(6)
-        self._build_log_area(log_layout)
-        self._build_progress_bar(log_layout)
-        right_splitter.addWidget(log_container)
+        main_splitter.setSizes([220, 740])
+        top_right_splitter.setSizes([440, 300])
 
-        # Set default splitter sizes
-        main_splitter.setSizes([220, 660])
-        right_splitter.setSizes([480, 140])
-        top_right_splitter.setSizes([440, 220])
-
-        # Worker signals
         self._signals = _WorkerSignals()
-        self._signals.log.connect(self._append_log)
-        self._signals.progress.connect(self._set_progress)
-        self._signals.finished.connect(self._on_finished)
-
-        # Initialize UI texts and settings menu
         self._update_ui_texts()
 
-        # Connect interactive crop signals
-        # Same-size mode: view ↔ spinboxes
         self.crop_same_view.cropChanged.connect(self._crop_same_on_view_changed)
         self.crop_same_w.valueChanged.connect(self._crop_same_update_view)
         self.crop_same_h.valueChanged.connect(self._crop_same_update_view)
         self.crop_anchor.currentIndexChanged.connect(self._crop_same_update_view)
 
-        # One-by-one mode: view ↔ spinboxes
         self.crop_manual_view.cropChanged.connect(self._crop_manual_on_view_changed)
         for sb in (self.crop_x, self.crop_y, self.crop_w, self.crop_h):
             sb.valueChanged.connect(self._crop_manual_update_view)
         self.crop_aspect.currentIndexChanged.connect(self._crop_update_aspect_ratio)
 
-        # Auto-save triggers on setting changes
+        self.output_dir.textChanged.connect(self._auto_save_temp)
         self.conv_format.currentIndexChanged.connect(self._auto_save_temp)
         self.conv_quality_slider.valueChanged.connect(self._auto_save_temp)
-        self.conv_output_dir.textChanged.connect(self._auto_save_temp)
         self.conv_width.valueChanged.connect(self._auto_save_temp)
         self.conv_height.valueChanged.connect(self._auto_save_temp)
         self.conv_scale.valueChanged.connect(self._auto_save_temp)
 
-        self.crop_format.currentIndexChanged.connect(self._auto_save_temp)
-        self.crop_output_dir.textChanged.connect(self._auto_save_temp)
+        self.crop_radio_none.toggled.connect(self._auto_save_temp)
         self.crop_radio_same.toggled.connect(self._auto_save_temp)
+        self.crop_radio_manual.toggled.connect(self._auto_save_temp)
         self.crop_same_w.valueChanged.connect(self._auto_save_temp)
         self.crop_same_h.valueChanged.connect(self._auto_save_temp)
         self.crop_anchor.currentIndexChanged.connect(self._auto_save_temp)
@@ -192,17 +192,11 @@ class App(QMainWindow):
             sb.valueChanged.connect(self._auto_save_temp)
         self.crop_skip_check.toggled.connect(self._auto_save_temp)
 
-        # Center on screen
         self._center_window()
-
-        # Enable auto-saving and clear dirty flag after setup
         self._crop_updating = False
         self._project_dirty = False
 
-    # ── Setup helpers ────────────────────────────────────────
-
     def _set_icon(self):
-        """Set window icon if available."""
         try:
             icon_path = _PROJECT_ROOT / "monolight.png"
             if icon_path.exists():
@@ -211,7 +205,6 @@ class App(QMainWindow):
             pass
 
     def _center_window(self):
-        """Center window on screen."""
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
@@ -220,23 +213,18 @@ class App(QMainWindow):
             self.move(x, y)
 
     def _change_language(self, lang: str):
-        """Change language, update UI, and save configuration."""
         set_language(lang)
         self.i18n = get_i18n()
         self._update_ui_texts()
         self._save_settings()
 
     def _load_settings(self):
-        """Load settings from settings.json."""
         import json
         settings_file = Path(_PROJECT_ROOT) / "settings.json"
-        
-        # Default settings
         lang = "en"
         palette = "gold"
         custom_accent = ""
         self._recent_projects = []
-        
         if settings_file.exists():
             try:
                 with open(settings_file, "r") as f:
@@ -247,19 +235,14 @@ class App(QMainWindow):
                     self._recent_projects = data.get("recent_projects", [])
             except Exception:
                 pass
-        
-        # Set language
         set_language(lang)
         self.i18n = get_i18n()
-        
-        # Set active color palette
         if palette == "custom" and custom_accent:
             theme.set_custom_accent(custom_accent)
         else:
             theme.set_active_palette(palette)
 
     def _save_settings(self):
-        """Save settings to settings.json."""
         import json
         settings_file = Path(_PROJECT_ROOT) / "settings.json"
         data = {
@@ -275,7 +258,6 @@ class App(QMainWindow):
             pass
 
     def _apply_theme(self, name: str):
-        """Apply preset theme color palette."""
         theme.set_active_palette(name)
         self.setStyleSheet(theme.get_stylesheet())
         self._save_settings()
@@ -283,7 +265,6 @@ class App(QMainWindow):
         self._on_file_selected(self.file_list.currentRow())
 
     def _choose_custom_color(self):
-        """Open dialog to pick a custom accent color."""
         initial = QColor(theme.GOLD)
         color = QColorDialog.getColor(initial, self, self.i18n("custom_color"))
         if color.isValid():
@@ -294,10 +275,10 @@ class App(QMainWindow):
             self._update_ui_texts()
             self._on_file_selected(self.file_list.currentRow())
 
-    def _rebuild_settings_menu(self):
-        """Create/recreate settings menu in correct language."""
+    def _rebuild_file_menu(self):
+        """Create/recreate the unified File menu (project + settings combined)."""
         menu = QMenu(self)
-        menu.setStyleSheet(f"""
+        ss = f"""
             QMenu {{
                 background-color: {theme.CARD_BG};
                 color: {theme.TEXT_PRIMARY};
@@ -307,69 +288,26 @@ class App(QMainWindow):
                 background-color: {theme.GOLD};
                 color: {theme.BLACK_MATTE};
             }}
-        """)
-        
-        lang_menu = menu.addMenu(self.i18n("language"))
-        lang_menu.addAction("English", lambda: self._change_language("en"))
-        lang_menu.addAction("Bahasa Indonesia", lambda: self._change_language("id"))
-        
-        palette_menu = menu.addMenu(self.i18n("color_palette"))
-        palette_menu.addAction(self.i18n("theme_gold"), lambda: self._apply_theme("gold"))
-        palette_menu.addAction(self.i18n("theme_purple"), lambda: self._apply_theme("purple"))
-        palette_menu.addAction(self.i18n("theme_blue"), lambda: self._apply_theme("blue"))
-        palette_menu.addAction(self.i18n("theme_green"), lambda: self._apply_theme("green"))
-        palette_menu.addAction(self.i18n("theme_light"), lambda: self._apply_theme("light"))
-        palette_menu.addSeparator()
-        palette_menu.addAction(self.i18n("custom_color"), self._choose_custom_color)
-        
-        menu.addAction(self.i18n("about_qif"), self._show_about)
-        self.btn_settings.setMenu(menu)
+        """
+        menu.setStyleSheet(ss)
 
-    def _rebuild_project_menu(self):
-        """Create/recreate project menu in correct language."""
-        menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {theme.CARD_BG};
-                color: {theme.TEXT_PRIMARY};
-                border: 1px solid {theme.BORDER};
-            }}
-            QMenu::item:selected {{
-                background-color: {theme.GOLD};
-                color: {theme.BLACK_MATTE};
-            }}
-        """)
-        
         menu.addAction(self.i18n("open_project"), self._open_project)
-        
         recent_menu = menu.addMenu(self.i18n("open_recent"))
-        recent_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {theme.CARD_BG};
-                color: {theme.TEXT_PRIMARY};
-                border: 1px solid {theme.BORDER};
-            }}
-            QMenu::item:selected {{
-                background-color: {theme.GOLD};
-                color: {theme.BLACK_MATTE};
-            }}
-        """)
-        
+        recent_menu.setStyleSheet(ss)
+
         recovery_file = Path(_PROJECT_ROOT) / "autosave.qif"
         if recovery_file.exists():
-            recent_menu.addAction(f"↺ {self.i18n('recovered_session')}", lambda: self._load_project_file(str(recovery_file)))
+            recent_menu.addAction(
+                f"\u21ba {self.i18n('recovered_session')}",
+                lambda: self._load_project_file(str(recovery_file))
+            )
             recent_menu.addSeparator()
 
-        valid_recent = []
-        for path in self._recent_projects:
-            if Path(path).exists():
-                valid_recent.append(path)
-        
-        # Clean up stale recent projects
+        valid_recent = [p for p in self._recent_projects if Path(p).exists()]
         if len(valid_recent) != len(self._recent_projects):
             self._recent_projects = valid_recent
             self._save_settings()
-            
+
         if self._recent_projects:
             for path in self._recent_projects:
                 p = Path(path)
@@ -380,23 +318,34 @@ class App(QMainWindow):
 
         menu.addSeparator()
         menu.addAction(self.i18n("save_project"), self._save_project)
-        self.btn_project.setMenu(menu)
+        menu.addSeparator()
+
+        lang_menu = menu.addMenu(self.i18n("language"))
+        lang_menu.setStyleSheet(ss)
+        lang_menu.addAction("English", lambda: self._change_language("en"))
+        lang_menu.addAction("Bahasa Indonesia", lambda: self._change_language("id"))
+
+        palette_menu = menu.addMenu(self.i18n("color_palette"))
+        palette_menu.setStyleSheet(ss)
+        palette_menu.addAction(self.i18n("theme_gold"),   lambda: self._apply_theme("gold"))
+        palette_menu.addAction(self.i18n("theme_purple"), lambda: self._apply_theme("purple"))
+        palette_menu.addAction(self.i18n("theme_blue"),   lambda: self._apply_theme("blue"))
+        palette_menu.addAction(self.i18n("theme_green"),  lambda: self._apply_theme("green"))
+        palette_menu.addAction(self.i18n("theme_light"),  lambda: self._apply_theme("light"))
+        palette_menu.addSeparator()
+        palette_menu.addAction(self.i18n("custom_color"), self._choose_custom_color)
+
+        menu.addSeparator()
+        menu.addAction(self.i18n("about_qif"), self._show_about)
+        self.btn_file.setMenu(menu)
 
     def _update_ui_texts(self):
         """Update all UI text labels for the current language."""
         self.setWindowTitle(self.i18n("title"))
-        self._log_label.setText(self.i18n("log"))
-        
-        # Header / Green
-        self.btn_convert_mode.setText(self.i18n("convert"))
-        self.btn_crop_mode.setText(self.i18n("crop"))
-        self.btn_settings.setText(self.i18n("settings"))
-        self._rebuild_settings_menu()
-        
-        self.btn_project.setText(self.i18n("project"))
-        self._rebuild_project_menu()
-        
-        # Sidebar / Yellow
+
+        self.btn_file.setText(self.i18n("file_menu"))
+        self._rebuild_file_menu()
+
         self.lbl_pick_images.setText(self.i18n("pick_images"))
         self.btn_add_files.setText(self.i18n("add_files"))
         self.btn_add_folder.setText(self.i18n("add_folder"))
@@ -404,67 +353,51 @@ class App(QMainWindow):
         self.btn_clear.setText(self.i18n("clear_all"))
         self.subfolder_check.setText(self.i18n("include_subfolders"))
         self._update_count()
-        
-        # Convert Options / Blue Stack Page 0
+
         self.lbl_save_as.setText(self.i18n("save_as"))
         self.lbl_quality.setText(self.i18n("picture_quality"))
         self.lbl_save_to.setText(self.i18n("save_to"))
         self.btn_browse_out.setText(self.i18n("browse"))
-        self.conv_resize_section.setTitle(self.i18n("change_size"))
+
+        self.conv_resize_title.setText(self.i18n("change_size"))
         self.lbl_width.setText(self.i18n("width"))
         self.lbl_height.setText(self.i18n("height"))
         self.lbl_scale.setText(self.i18n("resize_percent"))
-        self.btn_convert.setText(f"★  {self.i18n('convert_now')}")
-        
-        # Crop Options / Blue Stack Page 1
-        self.lbl_crop_mode.setText(self.i18n("crop_mode"))
+
+        self._crop_section_title.setText(self.i18n("crop_section"))
+        self.crop_radio_none.setText(self.i18n("crop_none"))
         self.crop_radio_same.setText(self.i18n("crop_same_size"))
         self.crop_radio_manual.setText(self.i18n("crop_one_by_one"))
-        
+
         self.lbl_same_w.setText(self.i18n("crop_width"))
         self.lbl_same_h.setText(self.i18n("crop_height"))
         self.lbl_same_from.setText(self.i18n("crop_from"))
-        
-        # Populate anchor combobox
+
         curr_anchor = self.crop_anchor.currentIndex()
         self.crop_anchor.clear()
         self.crop_anchor.addItems([self.i18n("crop_center"), self.i18n("crop_top_left")])
-        if curr_anchor >= 0:
-            self.crop_anchor.setCurrentIndex(curr_anchor)
-        else:
-            self.crop_anchor.setCurrentIndex(0)
-        
+        self.crop_anchor.setCurrentIndex(max(curr_anchor, 0))
+
         self.lbl_manual_x.setText(self.i18n("crop_x"))
         self.lbl_manual_y.setText(self.i18n("crop_y"))
         self.lbl_manual_w.setText(self.i18n("crop_width"))
         self.lbl_manual_h.setText(self.i18n("crop_height"))
         self.lbl_manual_shape.setText(self.i18n("crop_shape"))
-        
-        # Populate aspect ratios combobox
+
         curr_aspect = self.crop_aspect.currentIndex()
         self.crop_aspect.clear()
         self.crop_aspect.addItems([
             self.i18n("crop_free"), "1:1", "4:3", "3:2", "16:9", "9:16", "3:4", "2:3",
         ])
-        if curr_aspect >= 0:
-            self.crop_aspect.setCurrentIndex(curr_aspect)
-        else:
-            self.crop_aspect.setCurrentIndex(0)
-        
+        self.crop_aspect.setCurrentIndex(max(curr_aspect, 0))
+
         self.crop_skip_check.setText(self.i18n("crop_skip"))
         self.lbl_crop_hint.setText(self.i18n("crop_hint"))
-        self.crop_prev_btn.setText(f"◀  {self.i18n('crop_previous')}")
-        self.crop_next_btn.setText(f"{self.i18n('crop_next')}  ▶")
-        
-        self.lbl_crop_save_as.setText(self.i18n("save_as"))
-        self.lbl_crop_save_to.setText(self.i18n("save_to"))
-        self.btn_crop_browse.setText(self.i18n("browse"))
-        self.btn_crop.setText(f"★  {self.i18n('crop_save_all')}")
-        
-        # Update navigation text
-        self._update_crop_nav_label()
+        self.crop_prev_btn.setText(f"\u25c4  {self.i18n('crop_previous')}")
+        self.crop_next_btn.setText(f"{self.i18n('crop_next')}  \u25ba")
 
-    # ── About dialog ─────────────────────────────────────────
+        self.btn_export.setText("EXPORT")
+        self._update_crop_nav_label()
 
     def _show_about(self):
         """Show the About dialog."""
@@ -472,49 +405,24 @@ class App(QMainWindow):
         dlg.setWindowTitle("About QIF")
         dlg.setFixedSize(420, 340)
         dlg.setStyleSheet(f"""
-            QDialog {{
-                background-color: {theme.CARD_BG};
-            }}
-            QLabel {{
-                color: #CCCCCC;
-            }}
-            QLabel#aboutTitle {{
-                color: {theme.GOLD};
-                font-size: 18pt;
-                font-weight: bold;
-            }}
-            QLabel#aboutSubtitle {{
-                color: #AAAAAA;
-                font-size: 10pt;
-            }}
-            QLabel#aboutLink {{
-                color: {theme.GOLD};
-                font-size: 10pt;
-            }}
+            QDialog {{ background-color: {theme.CARD_BG}; }}
+            QLabel {{ color: #CCCCCC; }}
+            QLabel#aboutTitle {{ color: {theme.GOLD}; font-size: 18pt; font-weight: bold; }}
+            QLabel#aboutSubtitle {{ color: #AAAAAA; font-size: 10pt; }}
             QPushButton {{
-                background-color: {theme.GOLD};
-                color: {theme.BLACK_MATTE};
-                border: none;
-                border-radius: 6px;
-                padding: 8px 28px;
-                font-weight: bold;
+                background-color: {theme.GOLD}; color: {theme.BLACK_MATTE};
+                border: none; border-radius: 6px; padding: 8px 28px; font-weight: bold;
             }}
-            QPushButton:hover {{
-                background-color: {theme.GOLD_HOVER};
-            }}
+            QPushButton:hover {{ background-color: {theme.GOLD_HOVER}; }}
         """)
-
         layout = QVBoxLayout(dlg)
         layout.setSpacing(10)
         layout.setContentsMargins(28, 24, 28, 20)
 
-        # App icon
         icon_path = _PROJECT_ROOT / "monolight.png"
         if icon_path.exists():
             icon_label = QLabel()
-            px = QPixmap(str(icon_path)).scaled(
-                64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation,
-            )
+            px = QPixmap(str(icon_path)).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_label.setPixmap(px)
             icon_label.setAlignment(Qt.AlignCenter)
             layout.addWidget(icon_label)
@@ -528,12 +436,9 @@ class App(QMainWindow):
         version.setObjectName("aboutSubtitle")
         version.setAlignment(Qt.AlignCenter)
         layout.addWidget(version)
-
         layout.addSpacing(8)
 
-        author = QLabel(
-            "Made by <b>Wira</b> (PWira)\n"
-        )
+        author = QLabel("Made by <b>Wira</b> (PWira)")
         author.setAlignment(Qt.AlignCenter)
         layout.addWidget(author)
 
@@ -541,181 +446,101 @@ class App(QMainWindow):
         license_lbl.setObjectName("aboutSubtitle")
         license_lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(license_lbl)
-
         layout.addStretch()
 
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(dlg.accept)
         layout.addWidget(btn_close, alignment=Qt.AlignCenter)
-
         dlg.exec()
-
-    # ── Log area ─────────────────────────────────────────────
-
-    def _build_log_area(self, parent_layout):
-        """Build the activity log text area."""
-        self._log_label = QLabel(self.i18n("log"))
-        self._log_label.setObjectName("headerLabel")
-        parent_layout.addWidget(self._log_label)
-
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(110)
-        parent_layout.addWidget(self.log_text)
-
-    def _build_progress_bar(self, parent_layout):
-        """Build progress bar."""
-        prog_row = QHBoxLayout()
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(8)
-        self.progress_label = QLabel("0%")
-        self.progress_label.setObjectName("dimLabel")
-        self.progress_label.setFixedWidth(36)
-        self.progress_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        prog_row.addWidget(self.progress_bar)
-        prog_row.addWidget(self.progress_label)
-        parent_layout.addLayout(prog_row)
 
     def _log(self, msg: str, tag: str = ""):
         """Thread-safe log — emits signal to main thread."""
         self._signals.log.emit(msg, tag)
 
-    def _append_log(self, msg: str, tag: str):
-        """Append text to log widget (called on main thread)."""
-        color_map = {"ok": theme.SUCCESS, "err": theme.ERROR, "inf": theme.INFO}
-        color = color_map.get(tag, "#CCCCCC")
-        self.log_text.append(f'<span style="color:{color}">{msg}</span>')
+    def _start_progress_dialog(self, title_text):
+        """Prepare and show the progress dialog, connecting worker signals to it."""
+        for attr in ("log", "progress", "finished"):
+            try:
+                getattr(self._signals, attr).disconnect()
+            except RuntimeError:
+                pass
+        dlg = ProgressDialog(self, title_text=title_text)
+        self._signals.log.connect(dlg.append_log)
+        self._signals.progress.connect(dlg.set_progress)
+        self._signals.finished.connect(lambda: dlg.on_finished(self.i18n("info_done")))
+        dlg.show()
+        return dlg
 
-    def _set_progress(self, value: int):
-        """Update progress bar value."""
-        self.progress_bar.setValue(value)
-        self.progress_label.setText(f"{value}%")
-
-    def _on_finished(self):
-        """Called when worker thread finishes."""
-
-        self._set_progress(100)
-        QTimer.singleShot(800, lambda: self._set_progress(0))
-
-    # ── Custom Layout Construction Builders ──────────────────
+    # ---- Layout builders ----
 
     def _build_header(self, layout):
-        """Build the Green header bar with feature buttons and settings button."""
+        """Build the header bar with a single File button on the left."""
         header = QFrame()
         header.setObjectName("headerPanel")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(12, 8, 12, 8)
         header_layout.setSpacing(12)
 
-        # Title/Logo
-        title = QLabel("QIF — Quick Image Formatting")
-        title.setObjectName("headerLabel")
-        header_layout.addWidget(title)
-        
+        self.btn_file = QPushButton()
+        self.btn_file.setObjectName("settingsBtn")
+        header_layout.addWidget(self.btn_file)
         header_layout.addStretch(1)
-
-        # Feature Selection (Convert & Crop)
-        self.btn_convert_mode = QPushButton()
-        self.btn_convert_mode.setObjectName("featureBtn")
-        self.btn_convert_mode.setCheckable(True)
-        self.btn_convert_mode.setChecked(True)
-        
-        self.btn_crop_mode = QPushButton()
-        self.btn_crop_mode.setObjectName("featureBtn")
-        self.btn_crop_mode.setCheckable(True)
-
-        header_layout.addWidget(self.btn_convert_mode)
-        header_layout.addWidget(self.btn_crop_mode)
-
-        # Button Group for exclusiveness
-        self.mode_group = QButtonGroup(self)
-        self.mode_group.addButton(self.btn_convert_mode, 0)
-        self.mode_group.addButton(self.btn_crop_mode, 1)
-        self.mode_group.setExclusive(True)
-        self.mode_group.idToggled.connect(self._on_feature_mode_changed)
-
-        # Project Dropdown Button
-        self.btn_project = QPushButton()
-        self.btn_project.setObjectName("settingsBtn")
-        header_layout.addWidget(self.btn_project)
-
-        # Settings Dropdown Button
-        self.btn_settings = QPushButton()
-        self.btn_settings.setObjectName("settingsBtn")
-        header_layout.addWidget(self.btn_settings)
 
         layout.addWidget(header)
 
     def _build_sidebar(self, widget):
-        """Build the Yellow left sidebar containing file lists and operations."""
+        """Build the left sidebar containing file list and operations."""
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Header label
-        self.lbl_pick_images = QLabel()
-        self.lbl_pick_images.setObjectName("headerLabel")
-        layout.addWidget(self.lbl_pick_images)
+        self.lbl_pick_images = QLabel()  # kept but not added to layout (title hidden)
 
-        # Buttons grid
         btn_grid = QGridLayout()
         btn_grid.setSpacing(6)
-        
-        self.btn_add_files = QPushButton()
-        self.btn_add_files.clicked.connect(self._add_files)
-        
+        self.btn_add_files  = QPushButton()
         self.btn_add_folder = QPushButton()
+        self.btn_remove     = QPushButton()
+        self.btn_clear      = QPushButton()
+        self.btn_add_files.clicked.connect(self._add_files)
         self.btn_add_folder.clicked.connect(self._add_folder)
-        
-        self.btn_remove = QPushButton()
         self.btn_remove.clicked.connect(self._remove_selected)
-        
-        self.btn_clear = QPushButton()
         self.btn_clear.clicked.connect(self._clear_all)
-
-        btn_grid.addWidget(self.btn_add_files, 0, 0)
+        btn_grid.addWidget(self.btn_add_files,  0, 0)
         btn_grid.addWidget(self.btn_add_folder, 0, 1)
-        btn_grid.addWidget(self.btn_remove, 1, 0)
-        btn_grid.addWidget(self.btn_clear, 1, 1)
+        btn_grid.addWidget(self.btn_remove,     1, 0)
+        btn_grid.addWidget(self.btn_clear,      1, 1)
         layout.addLayout(btn_grid)
 
-        # Include subfolders check
         self.subfolder_check = QCheckBox()
         layout.addWidget(self.subfolder_check)
 
-        # File List widget
         self.file_list = QListWidget()
         self.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.file_list.currentRowChanged.connect(self._on_file_selected)
         self.file_list.setMinimumWidth(180)
         layout.addWidget(self.file_list, stretch=1)
 
-        # File count label
         self.count_label = QLabel()
         self.count_label.setObjectName("dimLabel")
         layout.addWidget(self.count_label)
 
-    def _build_convert_options(self, widget):
-        """Build Convert options panel inside widget."""
+    def _build_unified_options(self, widget):
+        """Build the unified options panel: format/quality, resize, crop, EXPORT."""
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(12)
 
-        # Save As
+        # Format & Quality
         self.lbl_save_as = QLabel()
         layout.addWidget(self.lbl_save_as)
-        
         self.conv_format = QComboBox()
         self.conv_format.addItems(OUTPUT_FORMATS)
         self.conv_format.setCurrentText("PNG")
         layout.addWidget(self.conv_format)
 
-        # Picture Quality
         self.lbl_quality = QLabel()
         layout.addWidget(self.lbl_quality)
-        
         self.conv_quality_slider = QSlider(Qt.Horizontal)
         self.conv_quality_slider.setRange(1, 100)
         self.conv_quality_slider.setValue(85)
@@ -724,178 +549,135 @@ class App(QMainWindow):
         self.conv_quality_slider.valueChanged.connect(
             lambda v: self.conv_quality_label.setText(str(v))
         )
-        
-        quality_row = QHBoxLayout()
-        quality_row.addWidget(self.conv_quality_slider)
-        quality_row.addWidget(self.conv_quality_label)
-        layout.addLayout(quality_row)
+        q_row = QHBoxLayout()
+        q_row.addWidget(self.conv_quality_slider)
+        q_row.addWidget(self.conv_quality_label)
+        layout.addLayout(q_row)
 
-        # Save To
+        # Output directory
         self.lbl_save_to = QLabel()
         layout.addWidget(self.lbl_save_to)
-        
-        self.conv_output_dir = QLineEdit()
-        layout.addWidget(self.conv_output_dir)
-        
+        self.output_dir = QLineEdit()
+        layout.addWidget(self.output_dir)
         self.btn_browse_out = QPushButton()
-        self.btn_browse_out.clicked.connect(self._conv_browse_output)
+        self.btn_browse_out.clicked.connect(self._browse_output)
         layout.addWidget(self.btn_browse_out)
 
-        # Resize Section
-        self.conv_resize_section = CollapsibleSection("")
-        resize_layout = self.conv_resize_section.content_layout()
-        
-        resize_grid = QGridLayout()
-        resize_grid.setSpacing(6)
-        
-        self.lbl_width = QLabel()
+        # Resize section
+        layout.addWidget(Separator())
+        self.conv_resize_title = QLabel()
+        self.conv_resize_title.setObjectName("headerLabel")
+        layout.addWidget(self.conv_resize_title)
+
+        rg = QGridLayout()
+        rg.setSpacing(6)
+        self.lbl_width  = QLabel()
         self.conv_width = QSpinBox()
         self.conv_width.setRange(0, 99999)
-        self.conv_width.setSpecialValueText("—")
+        self.conv_width.setSpecialValueText("\u2014")
         self.conv_width.setSuffix(" px")
-        
-        self.lbl_height = QLabel()
+        self.lbl_height  = QLabel()
         self.conv_height = QSpinBox()
         self.conv_height.setRange(0, 99999)
-        self.conv_height.setSpecialValueText("—")
+        self.conv_height.setSpecialValueText("\u2014")
         self.conv_height.setSuffix(" px")
-        
-        self.lbl_scale = QLabel()
+        self.lbl_scale  = QLabel()
         self.conv_scale = QSpinBox()
         self.conv_scale.setRange(0, 10000)
-        self.conv_scale.setSpecialValueText("—")
+        self.conv_scale.setSpecialValueText("\u2014")
         self.conv_scale.setSuffix(" %")
+        rg.addWidget(self.lbl_width,  0, 0); rg.addWidget(self.conv_width,  0, 1)
+        rg.addWidget(self.lbl_height, 1, 0); rg.addWidget(self.conv_height, 1, 1)
+        rg.addWidget(self.lbl_scale,  2, 0); rg.addWidget(self.conv_scale,  2, 1)
+        layout.addLayout(rg)
 
-        resize_grid.addWidget(self.lbl_width, 0, 0)
-        resize_grid.addWidget(self.conv_width, 0, 1)
-        resize_grid.addWidget(self.lbl_height, 1, 0)
-        resize_grid.addWidget(self.conv_height, 1, 1)
-        resize_grid.addWidget(self.lbl_scale, 2, 0)
-        resize_grid.addWidget(self.conv_scale, 2, 1)
-        resize_layout.addLayout(resize_grid)
-        layout.addWidget(self.conv_resize_section)
-
-        layout.addStretch(1)
-
-        # Convert button
-        self.btn_convert = QPushButton()
-        self.btn_convert.setObjectName("primaryBtn")
-        self.btn_convert.clicked.connect(self._run_convert)
-        layout.addWidget(self.btn_convert)
-
-    def _build_crop_options(self, widget):
-        """Build Crop options panel inside widget."""
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(10)
-
-        # Crop Mode
-        self.lbl_crop_mode = QLabel()
-        self.lbl_crop_mode.setObjectName("headerLabel")
-        layout.addWidget(self.lbl_crop_mode)
-
-        self.crop_mode_group = QButtonGroup(self)
-        self.crop_radio_same = QRadioButton()
-        self.crop_radio_manual = QRadioButton()
-        self.crop_radio_same.setChecked(True)
-        self.crop_mode_group.addButton(self.crop_radio_same, 0)
-        self.crop_mode_group.addButton(self.crop_radio_manual, 1)
-        self.crop_mode_group.idToggled.connect(self._crop_mode_changed)
-
-        mode_col = QVBoxLayout()
-        mode_col.setSpacing(4)
-        mode_col.addWidget(self.crop_radio_same)
-        mode_col.addWidget(self.crop_radio_manual)
-        layout.addLayout(mode_col)
-
+        # Crop section
         layout.addWidget(Separator())
+        self._crop_section_title = QLabel()
+        self._crop_section_title.setObjectName("headerLabel")
+        layout.addWidget(self._crop_section_title)
 
-        # ── Same-size panel ──────────────────────────────
+        self.crop_mode_group  = QButtonGroup(self)
+        self.crop_radio_none   = QRadioButton()
+        self.crop_radio_same   = QRadioButton()
+        self.crop_radio_manual = QRadioButton()
+        self.crop_radio_none.setChecked(True)
+        self.crop_mode_group.addButton(self.crop_radio_none,   self.CROP_NONE)
+        self.crop_mode_group.addButton(self.crop_radio_same,   self.CROP_SAME)
+        self.crop_mode_group.addButton(self.crop_radio_manual, self.CROP_MANUAL)
+        self.crop_mode_group.setExclusive(True)
+        self.crop_mode_group.idToggled.connect(self._on_crop_mode_changed)
+
+        mc = QVBoxLayout()
+        mc.setSpacing(4)
+        mc.addWidget(self.crop_radio_none)
+        mc.addWidget(self.crop_radio_same)
+        mc.addWidget(self.crop_radio_manual)
+        layout.addLayout(mc)
+
+        # Same-size sub-panel
         self.crop_same_panel = QWidget()
-        same_layout = QVBoxLayout(self.crop_same_panel)
-        same_layout.setContentsMargins(0, 0, 0, 0)
-        same_layout.setSpacing(6)
-
-        same_grid = QGridLayout()
-        same_grid.setSpacing(6)
-
-        self.lbl_same_w = QLabel()
+        sl = QVBoxLayout(self.crop_same_panel)
+        sl.setContentsMargins(0, 4, 0, 0)
+        sl.setSpacing(6)
+        sg = QGridLayout()
+        sg.setSpacing(6)
+        self.lbl_same_w  = QLabel()
         self.crop_same_w = QSpinBox()
         self.crop_same_w.setRange(1, 99999)
         self.crop_same_w.setValue(800)
         self.crop_same_w.setSuffix(" px")
-
-        self.lbl_same_h = QLabel()
+        self.lbl_same_h  = QLabel()
         self.crop_same_h = QSpinBox()
         self.crop_same_h.setRange(1, 99999)
         self.crop_same_h.setValue(600)
         self.crop_same_h.setSuffix(" px")
-
         self.lbl_same_from = QLabel()
         self.crop_anchor = QComboBox()
-        self.crop_anchor.addItems(["", ""]) # filled in update_ui_texts
-
-        same_grid.addWidget(self.lbl_same_w, 0, 0)
-        same_grid.addWidget(self.crop_same_w, 0, 1)
-        same_grid.addWidget(self.lbl_same_h, 1, 0)
-        same_grid.addWidget(self.crop_same_h, 1, 1)
-        same_grid.addWidget(self.lbl_same_from, 2, 0)
-        same_grid.addWidget(self.crop_anchor, 2, 1)
-        same_layout.addLayout(same_grid)
+        self.crop_anchor.addItems(["", ""])  # filled in _update_ui_texts
+        sg.addWidget(self.lbl_same_w,    0, 0); sg.addWidget(self.crop_same_w,   0, 1)
+        sg.addWidget(self.lbl_same_h,    1, 0); sg.addWidget(self.crop_same_h,   1, 1)
+        sg.addWidget(self.lbl_same_from, 2, 0); sg.addWidget(self.crop_anchor,   2, 1)
+        sl.addLayout(sg)
+        self.crop_same_panel.setVisible(False)
         layout.addWidget(self.crop_same_panel)
 
-        # ── Manual panel (hidden by default) ──────────────
+        # Manual crop sub-panel
         self.crop_manual_panel = QWidget()
-        manual_layout = QVBoxLayout(self.crop_manual_panel)
-        manual_layout.setContentsMargins(0, 0, 0, 0)
-        manual_layout.setSpacing(6)
-
-        crop_grid = QGridLayout()
-        crop_grid.setSpacing(6)
-
-        self.lbl_manual_x = QLabel()
-        self.crop_x = QSpinBox()
+        ml = QVBoxLayout(self.crop_manual_panel)
+        ml.setContentsMargins(0, 4, 0, 0)
+        ml.setSpacing(6)
+        cg = QGridLayout()
+        cg.setSpacing(6)
+        self.lbl_manual_x     = QLabel()
+        self.crop_x           = QSpinBox()
         self.crop_x.setRange(0, 99999)
-
-        self.lbl_manual_y = QLabel()
-        self.crop_y = QSpinBox()
+        self.lbl_manual_y     = QLabel()
+        self.crop_y           = QSpinBox()
         self.crop_y.setRange(0, 99999)
-
-        self.lbl_manual_w = QLabel()
-        self.crop_w = QSpinBox()
+        self.lbl_manual_w     = QLabel()
+        self.crop_w           = QSpinBox()
         self.crop_w.setRange(1, 99999)
         self.crop_w.setValue(800)
-
-        self.lbl_manual_h = QLabel()
-        self.crop_h = QSpinBox()
+        self.lbl_manual_h     = QLabel()
+        self.crop_h           = QSpinBox()
         self.crop_h.setRange(1, 99999)
         self.crop_h.setValue(600)
-
         self.lbl_manual_shape = QLabel()
-        self.crop_aspect = QComboBox()
-        self.crop_aspect.addItems(["", "1:1", "4:3", "3:2", "16:9", "9:16", "3:4", "2:3"]) # free item localized in update_ui_texts
-
-        crop_grid.addWidget(self.lbl_manual_x, 0, 0)
-        crop_grid.addWidget(self.crop_x, 0, 1)
-        crop_grid.addWidget(self.lbl_manual_y, 1, 0)
-        crop_grid.addWidget(self.crop_y, 1, 1)
-        crop_grid.addWidget(self.lbl_manual_w, 2, 0)
-        crop_grid.addWidget(self.crop_w, 2, 1)
-        crop_grid.addWidget(self.lbl_manual_h, 3, 0)
-        crop_grid.addWidget(self.crop_h, 3, 1)
-        crop_grid.addWidget(self.lbl_manual_shape, 4, 0)
-        crop_grid.addWidget(self.crop_aspect, 4, 1)
-        manual_layout.addLayout(crop_grid)
-
+        self.crop_aspect      = QComboBox()
+        self.crop_aspect.addItems(["", "1:1", "4:3", "3:2", "16:9", "9:16", "3:4", "2:3"])
+        cg.addWidget(self.lbl_manual_x,     0, 0); cg.addWidget(self.crop_x,      0, 1)
+        cg.addWidget(self.lbl_manual_y,     1, 0); cg.addWidget(self.crop_y,      1, 1)
+        cg.addWidget(self.lbl_manual_w,     2, 0); cg.addWidget(self.crop_w,      2, 1)
+        cg.addWidget(self.lbl_manual_h,     3, 0); cg.addWidget(self.crop_h,      3, 1)
+        cg.addWidget(self.lbl_manual_shape, 4, 0); cg.addWidget(self.crop_aspect, 4, 1)
+        ml.addLayout(cg)
         self.crop_skip_check = QCheckBox()
-        manual_layout.addWidget(self.crop_skip_check)
-
+        ml.addWidget(self.crop_skip_check)
         self.lbl_crop_hint = QLabel()
         self.lbl_crop_hint.setObjectName("dimLabel")
         self.lbl_crop_hint.setWordWrap(True)
-        manual_layout.addWidget(self.lbl_crop_hint)
-
-        # Nav bar inside panel
+        ml.addWidget(self.lbl_crop_hint)
         nav_row = QHBoxLayout()
         self.crop_prev_btn = QPushButton()
         self.crop_prev_btn.clicked.connect(self._crop_go_prev)
@@ -906,76 +688,51 @@ class App(QMainWindow):
         nav_row.addWidget(self.crop_prev_btn)
         nav_row.addWidget(self.crop_nav_label)
         nav_row.addWidget(self.crop_next_btn)
-        manual_layout.addLayout(nav_row)
-
+        ml.addLayout(nav_row)
         self.crop_manual_panel.setVisible(False)
         layout.addWidget(self.crop_manual_panel)
 
-        layout.addWidget(Separator())
-
-        # Output settings
-        self.lbl_crop_save_as = QLabel()
-        layout.addWidget(self.lbl_crop_save_as)
-        self.crop_format = QComboBox()
-        self.crop_format.addItems(OUTPUT_FORMATS)
-        self.crop_format.setCurrentText("PNG")
-        layout.addWidget(self.crop_format)
-
-        self.lbl_crop_save_to = QLabel()
-        layout.addWidget(self.lbl_crop_save_to)
-        self.crop_output_dir = QLineEdit()
-        layout.addWidget(self.crop_output_dir)
-        self.btn_crop_browse = QPushButton()
-        self.btn_crop_browse.clicked.connect(self._crop_browse_output)
-        layout.addWidget(self.btn_crop_browse)
-
         layout.addStretch(1)
 
-        # Crop action button
-        self.btn_crop = QPushButton()
-        self.btn_crop.setObjectName("primaryBtn")
-        self.btn_crop.clicked.connect(self._run_crop)
-        layout.addWidget(self.btn_crop)
+        # EXPORT button
+        self.btn_export = QPushButton()
+        self.btn_export.setObjectName("primaryBtn")
+        self.btn_export.clicked.connect(self._run_export)
+        layout.addWidget(self.btn_export)
 
-    # ── Signal Event Handlers ────────────────────────────────
+    # ---- Handlers ----
 
-    def _on_feature_mode_changed(self, id_: int, checked: bool):
-        """Swaps stacks and updates previews when active feature mode is toggled."""
+    def _on_crop_mode_changed(self, id_: int, checked: bool):
+        """Updates viewport and sub-panels when a crop mode radio is toggled."""
         if not checked:
             return
-        if id_ == 0:
-            # Convert mode
-            if self.crop_radio_manual.isChecked():
-                self._crop_save_current_settings()
-            self.viewport_stack.setCurrentIndex(0)
-            self.options_stack.setCurrentIndex(0)
-        else:
-            # Crop mode
-            self.options_stack.setCurrentIndex(1)
-            if self.crop_radio_manual.isChecked():
-                self.viewport_stack.setCurrentIndex(2)
-            else:
-                self.viewport_stack.setCurrentIndex(1)
-        self._on_file_selected(self.file_list.currentRow())
+        self.crop_same_panel.setVisible(id_ == self.CROP_SAME)
+        self.crop_manual_panel.setVisible(id_ == self.CROP_MANUAL)
+        vp_index = {self.CROP_NONE: 0, self.CROP_SAME: 1, self.CROP_MANUAL: 2}.get(id_, 0)
+        self.viewport_stack.setCurrentIndex(vp_index)
+        row = self.file_list.currentRow()
+        if 0 <= row < self.file_list.count():
+            path = self.file_list.item(row).data(Qt.UserRole)
+            if id_ == self.CROP_NONE:
+                self._load_convert_preview(path)
+            elif id_ == self.CROP_SAME:
+                self._crop_same_load_preview(path)
+            elif id_ == self.CROP_MANUAL:
+                self._crop_load_image(row)
 
     def _on_file_selected(self, row: int):
         """Triggered when a row in the unified file list is highlighted."""
         if row < 0 or row >= self.file_list.count():
             self._clear_viewport()
             return
-        
         path = self.file_list.item(row).data(Qt.UserRole)
-        
-        # Load image based on active feature
-        if self.btn_convert_mode.isChecked():
-            # Convert mode
+        mode = self.crop_mode_group.checkedId()
+        if mode == self.CROP_NONE:
             self._load_convert_preview(path)
-        else:
-            # Crop mode
-            if self.crop_radio_same.isChecked():
-                self._crop_same_load_preview(path)
-            else:
-                self._crop_load_image(row)
+        elif mode == self.CROP_SAME:
+            self._crop_same_load_preview(path)
+        elif mode == self.CROP_MANUAL:
+            self._crop_load_image(row)
 
     def _clear_viewport(self):
         """Reset all viewports to empty state."""
@@ -985,36 +742,30 @@ class App(QMainWindow):
         self.crop_nav_label.setText("")
 
     def _load_convert_preview(self, path: str):
-        """Load selected image into Convert mode's fitted previewer."""
+        """Load selected image into the fitted previewer."""
         try:
-            pil_img = open_image(Path(path))
-            self.convert_preview.load_image(pil_img)
+            self.convert_preview.load_image(open_image(Path(path)))
         except Exception as e:
             self._log(f"{self.i18n('log_error')}  {e}", "err")
 
-    # ── Unified File management helpers ─────────────────────
+    # ---- File management ----
 
     def _add_files(self):
-        """Open file dialog to add individual images."""
         files, _ = QFileDialog.getOpenFileNames(
-            self, self.i18n("add_files"), "",
-            file_filter_string(self.i18n),
-        )
+            self, self.i18n("add_files"), "", file_filter_string(self.i18n))
         for f in files:
             self._add_path(f)
         self._update_count()
         self._auto_load_preview()
 
     def _add_folder(self):
-        """Open folder dialog and add all images from it."""
         folder = QFileDialog.getExistingDirectory(self, self.i18n("add_folder"))
         if not folder:
             return
         recursive = self.subfolder_check.isChecked()
         pattern = "**/*" if recursive else "*"
-        folder_path = Path(folder)
         try:
-            for f in sorted(folder_path.glob(pattern)):
+            for f in sorted(Path(folder).glob(pattern)):
                 if f.is_file() and f.suffix.lower() in INPUT_EXTS:
                     self._add_path(str(f))
         except Exception as e:
@@ -1023,7 +774,6 @@ class App(QMainWindow):
         self._auto_load_preview()
 
     def _add_path(self, path: str):
-        """Add a single file path to the list (no duplicates)."""
         if path in self._files:
             return
         self._files.append(path)
@@ -1033,7 +783,7 @@ class App(QMainWindow):
             img = Image.open(path)
             w, h = img.size
             img.close()
-            item.setText(f"{p.name}   ({w}×{h})")
+            item.setText(f"{p.name}   ({w}\u00d7{h})")
         except Exception:
             item.setText(p.name)
         item.setData(Qt.UserRole, path)
@@ -1041,40 +791,32 @@ class App(QMainWindow):
         self._auto_save_temp()
 
     def _remove_selected(self):
-        """Remove selected items from the file list."""
-        selected_items = self.file_list.selectedItems()
-        if not selected_items:
+        selected = self.file_list.selectedItems()
+        if not selected:
             return
-        # Save current manual settings before indices shift
-        if self.btn_crop_mode.isChecked() and self.crop_radio_manual.isChecked():
+        if self.crop_radio_manual.isChecked():
             self._crop_save_current_settings()
         self._crop_index = None
-
-        rows = sorted([self.file_list.row(item) for item in selected_items], reverse=True)
+        rows = sorted([self.file_list.row(i) for i in selected], reverse=True)
         for row in rows:
             self.file_list.takeItem(row)
             if row < len(self._files):
                 self._files.pop(row)
-            # Remove from crop settings data if it exists
             if row in self._crop_data:
                 del self._crop_data[row]
-        
-        # Shift indices in self._crop_data for correct mapping
         for r in rows:
-            temp_crop_data = {}
+            tmp = {}
             for idx, val in self._crop_data.items():
                 if idx < r:
-                    temp_crop_data[idx] = val
+                    tmp[idx] = val
                 elif idx > r:
-                    temp_crop_data[idx - 1] = val
-            self._crop_data = temp_crop_data
-
+                    tmp[idx - 1] = val
+            self._crop_data = tmp
         self._update_count()
         self._auto_load_preview()
         self._auto_save_temp()
 
     def _clear_all(self):
-        """Clear all items from the file list."""
         self._crop_index = None
         self.file_list.clear()
         self._files.clear()
@@ -1084,7 +826,6 @@ class App(QMainWindow):
         self._auto_save_temp()
 
     def _update_count(self):
-        """Update the file count label."""
         count = self.file_list.count()
         if count == 0:
             self.count_label.setText(self.i18n("no_files"))
@@ -1092,45 +833,15 @@ class App(QMainWindow):
             self.count_label.setText(f"{count} {self.i18n('files_in_list')}")
 
     def _auto_load_preview(self):
-        """Auto load preview of first image if nothing is selected."""
         if self.file_list.count() > 0 and self.file_list.currentRow() < 0:
             self.file_list.setCurrentRow(0)
 
-    def _conv_browse_output(self):
-        """Browse for convert output directory."""
+    def _browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, self.i18n("save_to"))
         if folder:
-            self.conv_output_dir.setText(folder)
+            self.output_dir.setText(folder)
 
-    def _crop_browse_output(self):
-        """Browse for crop output directory."""
-        folder = QFileDialog.getExistingDirectory(self, self.i18n("save_to"))
-        if folder:
-            self.crop_output_dir.setText(folder)
-
-    # ── Crop tab: mode switching ─────────────────────────────
-
-    def _crop_mode_changed(self, id_: int, checked: bool):
-        if not checked:
-            return
-        is_manual = (id_ == 1)
-        if not is_manual:
-            self._crop_save_current_settings()
-        self.crop_same_panel.setVisible(not is_manual)
-        self.crop_manual_panel.setVisible(is_manual)
-        
-        if self.btn_crop_mode.isChecked():
-            self.viewport_stack.setCurrentIndex(2 if is_manual else 1)
-            
-        row = self.file_list.currentRow()
-        if row >= 0 and row < self.file_list.count():
-            path = self.file_list.item(row).data(Qt.UserRole)
-            if is_manual:
-                self._crop_load_image(row)
-            else:
-                self._crop_same_load_preview(path)
-
-    # ── Crop tab: one-by-one navigation ──────────────────────
+    # ---- Crop helpers ----
 
     def _crop_go_prev(self):
         row = self.file_list.currentRow()
@@ -1145,100 +856,67 @@ class App(QMainWindow):
             self.file_list.setCurrentRow(row + 1)
 
     def _crop_save_current_settings(self):
-        """Save the current crop fields into the data dict for this image."""
         row = self.file_list.currentRow()
         if row < 0:
             return
         self._crop_data[row] = {
-            "x": self.crop_x.value(),
-            "y": self.crop_y.value(),
-            "w": self.crop_w.value(),
-            "h": self.crop_h.value(),
+            "x": self.crop_x.value(), "y": self.crop_y.value(),
+            "w": self.crop_w.value(), "h": self.crop_h.value(),
             "skip": self.crop_skip_check.isChecked(),
         }
 
     def _crop_load_image(self, index: int):
-        """Load image at the given index into the one-by-one interactive view."""
         if index < 0 or index >= self.file_list.count():
             return
-
-        # Save settings for the previously loaded manual crop image first
         if self._crop_index is not None and 0 <= self._crop_index < self.file_list.count():
             self._crop_data[self._crop_index] = {
-                "x": self.crop_x.value(),
-                "y": self.crop_y.value(),
-                "w": self.crop_w.value(),
-                "h": self.crop_h.value(),
+                "x": self.crop_x.value(), "y": self.crop_y.value(),
+                "w": self.crop_w.value(), "h": self.crop_h.value(),
                 "skip": self.crop_skip_check.isChecked(),
             }
-
         self._crop_index = index
-
-        # Update navigation label
         self._update_crop_nav_label()
         self.crop_prev_btn.setEnabled(index > 0)
         self.crop_next_btn.setEnabled(index < self.file_list.count() - 1)
-
-        # Load image into the interactive view
-        path = self._files[index]
         try:
-            pil_img = open_image(Path(path))
+            pil_img = open_image(Path(self._files[index]))
             iw, ih = pil_img.size
             self.crop_manual_view.load_image(pil_img)
-
-            # Restore saved settings or defaults
             self._crop_updating = True
             if index in self._crop_data:
                 d = self._crop_data[index]
-                self.crop_x.setValue(d["x"])
-                self.crop_y.setValue(d["y"])
-                self.crop_w.setValue(d["w"])
-                self.crop_h.setValue(d["h"])
+                self.crop_x.setValue(d["x"]); self.crop_y.setValue(d["y"])
+                self.crop_w.setValue(d["w"]); self.crop_h.setValue(d["h"])
                 self.crop_skip_check.setChecked(d["skip"])
             else:
-                self.crop_x.setValue(0)
-                self.crop_y.setValue(0)
-                self.crop_w.setValue(iw)
-                self.crop_h.setValue(ih)
+                self.crop_x.setValue(0); self.crop_y.setValue(0)
+                self.crop_w.setValue(iw); self.crop_h.setValue(ih)
                 self.crop_skip_check.setChecked(False)
             self._crop_updating = False
-
-            # Sync the view to match spinbox values
             self.crop_manual_view.set_crop_rect(
                 self.crop_x.value(), self.crop_y.value(),
-                self.crop_w.value(), self.crop_h.value(),
-            )
-
+                self.crop_w.value(), self.crop_h.value())
         except Exception as e:
             self._log(f"{self.i18n('log_error')}  {e}", "err")
 
-    # ── Crop tab: auto-load preview ──────────────────────────
-
     def _crop_same_load_preview(self, path: str):
-        """Load an image into the same-size mode preview."""
         try:
             pil_img = open_image(Path(path))
             self.crop_same_view.load_image(pil_img)
-            # Set crop rect based on current w/h and anchor
             self._crop_same_update_view()
         except Exception as e:
             self._log(f"{self.i18n('log_error')}  {e}", "err")
 
     def _update_crop_nav_label(self):
-        """Updates manual crop navigation label."""
         row = self.file_list.currentRow()
         total = self.file_list.count()
         if row >= 0 and total > 0:
             self.crop_nav_label.setText(
-                self.i18n("crop_image_n_of", current=row + 1, total=total)
-            )
+                self.i18n("crop_image_n_of", current=row + 1, total=total))
         else:
             self.crop_nav_label.setText("")
 
-    # ── Crop tab: same-size ↔ view sync ──────────────────────
-
     def _crop_same_on_view_changed(self, x, y, w, h):
-        """Handle mouse crop change in same-size preview."""
         if self._crop_updating:
             return
         self._crop_updating = True
@@ -1248,7 +926,6 @@ class App(QMainWindow):
         self._auto_save_temp()
 
     def _crop_same_update_view(self):
-        """Update same-size preview when spinboxes or anchor change."""
         if self._crop_updating:
             return
         if self.crop_anchor.currentIndex() < 0:
@@ -1259,41 +936,30 @@ class App(QMainWindow):
         iw, ih = img_sz
         cw = min(self.crop_same_w.value(), iw)
         ch = min(self.crop_same_h.value(), ih)
-
-        anchor_text = self.crop_anchor.currentText()
-        if anchor_text == self.i18n("crop_top_left"):
+        if self.crop_anchor.currentText() == self.i18n("crop_top_left"):
             cx, cy = 0, 0
-        else:  # center
+        else:
             cx = max(0, (iw - cw) // 2)
             cy = max(0, (ih - ch) // 2)
-
         self.crop_same_view.set_crop_rect(cx, cy, cw, ch)
 
-    # ── Crop tab: one-by-one ↔ view sync ─────────────────────
-
     def _crop_manual_on_view_changed(self, x, y, w, h):
-        """Handle mouse crop change in one-by-one view."""
         if self._crop_updating:
             return
         self._crop_updating = True
-        self.crop_x.setValue(x)
-        self.crop_y.setValue(y)
-        self.crop_w.setValue(w)
-        self.crop_h.setValue(h)
+        self.crop_x.setValue(x); self.crop_y.setValue(y)
+        self.crop_w.setValue(w); self.crop_h.setValue(h)
         self._crop_updating = False
         self._auto_save_temp()
 
     def _crop_manual_update_view(self):
-        """Update one-by-one view when spinboxes change."""
         if self._crop_updating:
             return
         self.crop_manual_view.set_crop_rect(
             self.crop_x.value(), self.crop_y.value(),
-            self.crop_w.value(), self.crop_h.value(),
-        )
+            self.crop_w.value(), self.crop_h.value())
 
     def _crop_update_aspect_ratio(self):
-        """Update the manual view's aspect ratio from the combo."""
         text = self.crop_aspect.currentText()
         if ":" in text:
             parts = text.split(":")
@@ -1305,44 +971,56 @@ class App(QMainWindow):
             ratio = 0.0
         self.crop_manual_view.set_aspect_ratio(ratio)
 
-    # ── Convert tab: run conversion ──────────────────────────
+    # ---- Unified Export ----
 
-    def _run_convert(self):
-        """Run the conversion in a background thread."""
+    def _run_export(self):
+        """Run the unified export (format + resize + crop) in a background thread."""
         count = self.file_list.count()
         if count == 0:
             QMessageBox.warning(self, self.i18n("error_title"), self.i18n("error_no_files"))
             return
-
-        out_dir = self.conv_output_dir.text().strip()
+        out_dir = self.output_dir.text().strip()
         if not out_dir:
             QMessageBox.warning(self, self.i18n("error_title"), self.i18n("error_no_output"))
             return
 
-        # Gather parameters
-        fmt = self.conv_format.currentText()
-        quality = self.conv_quality_slider.value()
-        ext_out = EXT_MAP.get(fmt, ".png")
-        w = self.conv_width.value() or None
-        h = self.conv_height.value() or None
+        if self.crop_radio_manual.isChecked():
+            self._crop_save_current_settings()
+
+        fmt       = self.conv_format.currentText()
+        quality   = self.conv_quality_slider.value()
+        ext_out   = EXT_MAP.get(fmt, ".png")
+        w         = self.conv_width.value() or None
+        h         = self.conv_height.value() or None
         scale_pct = self.conv_scale.value() or None
-        scale = (scale_pct / 100) if scale_pct else None
+        scale     = (scale_pct / 100) if scale_pct else None
 
-        # Collect file paths
-        files = []
-        for i in range(count):
-            files.append(self.file_list.item(i).data(Qt.UserRole))
+        crop_mode      = self.crop_mode_group.checkedId()
+        is_crop_same   = (crop_mode == self.CROP_SAME)
+        is_crop_manual = (crop_mode == self.CROP_MANUAL)
 
-        out_path = Path(out_dir)
+        same_w      = self.crop_same_w.value()
+        same_h      = self.crop_same_h.value()
+        anchor_text = self.crop_anchor.currentText()
+        anchor      = "top-left" if anchor_text == self.i18n("crop_top_left") else "center"
+
+        crop_data = dict(self._crop_data)
+        files     = [self.file_list.item(i).data(Qt.UserRole) for i in range(count)]
+        out_path  = Path(out_dir)
 
         def task():
-            ok, err = 0, 0
+            ok, err, skipped = 0, 0, 0
             self._signals.progress.emit(0)
             self._log(f"{self.i18n('log_arrow')}  {len(files)} {self.i18n('log_files_found')}", "inf")
-
             for idx, fpath in enumerate(files, 1):
                 src_path = Path(fpath)
                 dst = out_path / (src_path.stem + ext_out)
+                if is_crop_manual:
+                    settings = crop_data.get(idx - 1)
+                    if settings and settings.get("skip"):
+                        skipped += 1
+                        self._signals.progress.emit(int(idx / len(files) * 100))
+                        continue
                 try:
                     is_svg = src_path.suffix.lower() == ".svg"
                     if is_svg:
@@ -1351,6 +1029,15 @@ class App(QMainWindow):
                         img = open_image(src_path)
                         if w or h or scale:
                             img = do_resize(img, width=w, height=h, scale=scale)
+                    if is_crop_same:
+                        img = do_center_crop(img, same_w, same_h, anchor)
+                    elif is_crop_manual:
+                        settings = crop_data.get(idx - 1)
+                        if settings:
+                            cx, cy = settings["x"], settings["y"]
+                            cw, ch = settings["w"], settings["h"]
+                            if cw > 0 and ch > 0:
+                                img = do_crop(img, cx, cy, cw, ch)
                     save_image(img, dst, quality=quality, fmt_override=fmt)
                     self._log(
                         f"{self.i18n('log_success')}  {src_path.name}  {self.i18n('log_arrow')}  {dst.name}  {img.size}",
@@ -1362,116 +1049,18 @@ class App(QMainWindow):
                     traceback.print_exc()
                     err += 1
                 self._signals.progress.emit(int(idx / len(files) * 100))
-
-            self._log(
-                f"{self.i18n('log_completed')} {ok} {self.i18n('log_ok_count')}, {err} {self.i18n('log_err_count')}.",
-                "inf",
-            )
-            self._signals.finished.emit()
-
-        threading.Thread(target=task, daemon=True).start()
-
-    # ── Crop tab: run crop ───────────────────────────────────
-
-    def _run_crop(self):
-        """Run crop in a background thread."""
-        count = self.file_list.count()
-        if count == 0:
-            QMessageBox.warning(self, self.i18n("error_title"), self.i18n("error_no_files"))
-            return
-
-        out_dir = self.crop_output_dir.text().strip()
-        if not out_dir:
-            QMessageBox.warning(self, self.i18n("error_title"), self.i18n("error_no_output"))
-            return
-
-        # Save current manual settings if in manual mode
-        if self.crop_radio_manual.isChecked():
-            self._crop_save_current_settings()
-
-        is_same_mode = self.crop_radio_same.isChecked()
-        fmt = self.crop_format.currentText()
-        ext_out = EXT_MAP.get(fmt, ".png")
-        out_path = Path(out_dir)
-
-        # Same-size parameters
-        same_w = self.crop_same_w.value()
-        same_h = self.crop_same_h.value()
-        anchor_text = self.crop_anchor.currentText()
-        anchor = "top-left" if anchor_text == self.i18n("crop_top_left") else "center"
-
-        # Copy per-image crop data
-        crop_data = dict(self._crop_data)
-        files = [self.file_list.item(i).data(Qt.UserRole) for i in range(count)]
-
-        def task():
-            ok, err, skipped = 0, 0, 0
-            self._signals.progress.emit(0)
-            total = len(files)
-
-            for idx, fpath in enumerate(files, 1):
-                src_path = Path(fpath)
-                dst = out_path / (src_path.stem + "_cropped" + ext_out)
-
-                if is_same_mode:
-                    # Same-size mode
-                    try:
-                        img = open_image(src_path)
-                        cropped = do_center_crop(img, same_w, same_h, anchor)
-                        save_image(cropped, dst, fmt_override=fmt)
-                        self._log(
-                            f"{self.i18n('log_success')}  {src_path.name}  {self.i18n('log_arrow')}  {dst.name}  {cropped.size}",
-                            "ok",
-                        )
-                        ok += 1
-                    except Exception as e:
-                        self._log(f"{self.i18n('log_error')}  {src_path.name}: {e}", "err")
-                        err += 1
-                else:
-                    # Manual mode — check per-image settings
-                    settings = crop_data.get(idx - 1)
-                    if settings and settings.get("skip"):
-                        skipped += 1
-                        self._signals.progress.emit(int(idx / total * 100))
-                        continue
-
-                    if settings:
-                        cx, cy = settings["x"], settings["y"]
-                        cw, ch = settings["w"], settings["h"]
-                    else:
-                        # Default: no crop (full image)
-                        cx, cy, cw, ch = 0, 0, 0, 0
-
-                    try:
-                        img = open_image(src_path)
-                        if cw > 0 and ch > 0:
-                            cropped = do_crop(img, cx, cy, cw, ch)
-                        else:
-                            cropped = img
-                        save_image(cropped, dst, fmt_override=fmt)
-                        self._log(
-                            f"{self.i18n('log_success')}  {src_path.name}  {self.i18n('log_arrow')}  {dst.name}  {cropped.size}",
-                            "ok",
-                        )
-                        ok += 1
-                    except Exception as e:
-                        self._log(f"{self.i18n('log_error')}  {src_path.name}: {e}", "err")
-                        err += 1
-
-                self._signals.progress.emit(int(idx / total * 100))
-
             summary = f"{self.i18n('log_completed')} {ok} {self.i18n('log_ok_count')}, {err} {self.i18n('log_err_count')}."
             if skipped:
                 summary += f" ({skipped} skipped)"
             self._log(summary, "inf")
             self._signals.finished.emit()
 
+        self._start_progress_dialog(self.i18n("info_processing"))
         threading.Thread(target=task, daemon=True).start()
 
-    # ── Project Save / Load & Recovery Management ────────────
+    # ---- Project management ----
 
     def _auto_save_temp(self):
-        """Auto-save the project state to a temp recovery file."""
         if self._crop_updating:
             return
         self._project_dirty = True
@@ -1486,43 +1075,37 @@ class App(QMainWindow):
             pass
 
     def _add_to_recent_projects(self, filepath: str):
-        """Add a project file to the recent projects list, keeping only the 5 most recent."""
         filepath = str(Path(filepath).resolve())
         if filepath in self._recent_projects:
             self._recent_projects.remove(filepath)
         self._recent_projects.insert(0, filepath)
         self._recent_projects = self._recent_projects[:5]
         self._save_settings()
-        self._rebuild_project_menu()
+        self._rebuild_file_menu()
 
     def _get_project_state(self) -> dict:
-        """Get the current project state for serialization."""
         return {
-            "version": "1.0",
+            "version": "1.1",
             "files": self._files,
             "crop_data": {str(k): v for k, v in self._crop_data.items()},
             "settings": {
-                "convert_format": self.conv_format.currentText(),
+                "convert_format":  self.conv_format.currentText(),
                 "convert_quality": self.conv_quality_slider.value(),
-                "convert_output_dir": self.conv_output_dir.text(),
-                "convert_width": self.conv_width.value(),
-                "convert_height": self.conv_height.value(),
-                "convert_scale": self.conv_scale.value(),
-                "crop_format": self.crop_format.currentText(),
-                "crop_output_dir": self.crop_output_dir.text(),
-                "crop_is_manual": self.crop_radio_manual.isChecked(),
-                "crop_same_w": self.crop_same_w.value(),
-                "crop_same_h": self.crop_same_h.value(),
-                "crop_anchor": self.crop_anchor.currentIndex(),
-                "crop_aspect": self.crop_aspect.currentIndex(),
+                "output_dir":      self.output_dir.text(),
+                "convert_width":   self.conv_width.value(),
+                "convert_height":  self.conv_height.value(),
+                "convert_scale":   self.conv_scale.value(),
+                "crop_mode":       self.crop_mode_group.checkedId(),
+                "crop_same_w":     self.crop_same_w.value(),
+                "crop_same_h":     self.crop_same_h.value(),
+                "crop_anchor":     self.crop_anchor.currentIndex(),
+                "crop_aspect":     self.crop_aspect.currentIndex(),
             }
         }
 
     def _apply_project_state(self, state: dict):
-        """Restore the application state from a project dictionary."""
         self._crop_updating = True
         self._clear_all()
-        
         missing_files = []
         for f in state.get("files", []):
             if Path(f).exists():
@@ -1531,92 +1114,78 @@ class App(QMainWindow):
                 missing_files.append(f)
         self._update_count()
 
-        crop_data_raw = state.get("crop_data", {})
         self._crop_data = {}
-        for k, v in crop_data_raw.items():
+        for k, v in state.get("crop_data", {}).items():
             try:
                 self._crop_data[int(k)] = v
             except ValueError:
                 pass
 
         settings = state.get("settings", {})
-        
-        if "convert_format" in settings:
-            self.conv_format.setCurrentText(settings["convert_format"])
-        if "convert_quality" in settings:
-            self.conv_quality_slider.setValue(settings["convert_quality"])
-        if "convert_output_dir" in settings:
-            self.conv_output_dir.setText(settings["convert_output_dir"])
-        if "convert_width" in settings:
-            self.conv_width.setValue(settings["convert_width"])
-        if "convert_height" in settings:
-            self.conv_height.setValue(settings["convert_height"])
-        if "convert_scale" in settings:
-            self.conv_scale.setValue(settings["convert_scale"])
+        if "convert_format"  in settings: self.conv_format.setCurrentText(settings["convert_format"])
+        if "convert_quality" in settings: self.conv_quality_slider.setValue(settings["convert_quality"])
 
-        if "crop_format" in settings:
-            self.crop_format.setCurrentText(settings["crop_format"])
-        if "crop_output_dir" in settings:
-            self.crop_output_dir.setText(settings["crop_output_dir"])
-        
-        is_manual = settings.get("crop_is_manual", False)
-        if is_manual:
-            self.crop_radio_manual.setChecked(True)
+        out_dir = (
+            settings.get("output_dir")
+            or settings.get("convert_output_dir")
+            or settings.get("crop_output_dir", "")
+        )
+        if out_dir:
+            self.output_dir.setText(out_dir)
+
+        if "convert_width"  in settings: self.conv_width.setValue(settings["convert_width"])
+        if "convert_height" in settings: self.conv_height.setValue(settings["convert_height"])
+        if "convert_scale"  in settings: self.conv_scale.setValue(settings["convert_scale"])
+
+        if "crop_mode" in settings:
+            crop_mode = int(settings["crop_mode"])
+        elif settings.get("crop_is_manual", False):
+            crop_mode = self.CROP_MANUAL
         else:
-            self.crop_radio_same.setChecked(True)
-        self._crop_mode_changed(1 if is_manual else 0, True)
+            crop_mode = self.CROP_NONE
 
-        if "crop_same_w" in settings:
-            self.crop_same_w.setValue(settings["crop_same_w"])
-        if "crop_same_h" in settings:
-            self.crop_same_h.setValue(settings["crop_same_h"])
-        if "crop_anchor" in settings:
-            self.crop_anchor.setCurrentIndex(settings["crop_anchor"])
-        if "crop_aspect" in settings:
-            self.crop_aspect.setCurrentIndex(settings["crop_aspect"])
+        radio_map = {
+            self.CROP_NONE: self.crop_radio_none,
+            self.CROP_SAME: self.crop_radio_same,
+            self.CROP_MANUAL: self.crop_radio_manual,
+        }
+        radio_map.get(crop_mode, self.crop_radio_none).setChecked(True)
+        self._on_crop_mode_changed(crop_mode, True)
+
+        if "crop_same_w" in settings: self.crop_same_w.setValue(settings["crop_same_w"])
+        if "crop_same_h" in settings: self.crop_same_h.setValue(settings["crop_same_h"])
+        if "crop_anchor" in settings: self.crop_anchor.setCurrentIndex(settings["crop_anchor"])
+        if "crop_aspect" in settings: self.crop_aspect.setCurrentIndex(settings["crop_aspect"])
 
         self._crop_updating = False
         self._auto_load_preview()
-
-        if not is_manual and self.file_list.currentRow() >= 0:
+        if crop_mode == self.CROP_SAME and self.file_list.currentRow() >= 0:
             path = self.file_list.item(self.file_list.currentRow()).data(Qt.UserRole)
             self._crop_same_load_preview(path)
 
         if missing_files:
-            missing_paths_str = "\n".join(missing_files)
             QMessageBox.warning(
                 self,
                 self.i18n("project_missing_images_title"),
-                self.i18n("project_missing_images", paths=missing_paths_str)
+                self.i18n("project_missing_images", paths="\n".join(missing_files))
             )
             for f in missing_files:
                 self._log(f"{self.i18n('log_error')} File not found: {f}", "err")
 
     def _save_project(self):
-        """Show Save Project dialog, encrypt state, and write to disk."""
-        if self.btn_crop_mode.isChecked() and self.crop_radio_manual.isChecked():
+        if self.crop_radio_manual.isChecked():
             self._crop_save_current_settings()
-
         filename, _ = QFileDialog.getSaveFileName(
-            self,
-            self.i18n("save_project"),
-            "",
-            self.i18n("project_files")
-        )
+            self, self.i18n("save_project"), "", self.i18n("project_files"))
         if not filename:
             return
-
         if not filename.endswith(".qif"):
             filename += ".qif"
-
         try:
             from src.project_manager import encrypt_project_data
-            state = self._get_project_state()
-            encrypted = encrypt_project_data(state)
-            
+            encrypted = encrypt_project_data(self._get_project_state())
             with open(filename, "wb") as f:
                 f.write(encrypted)
-
             self._project_dirty = False
             self._add_to_recent_projects(filename)
             self._log(f"{self.i18n('log_success')} {self.i18n('project_saved')}: {Path(filename).name}", "ok")
@@ -1626,57 +1195,38 @@ class App(QMainWindow):
             QMessageBox.critical(self, self.i18n("error_title"), f"Error saving project: {e}")
 
     def _open_project(self):
-        """Show Open Project dialog and load it."""
         if self._project_dirty:
             reply = QMessageBox.question(
-                self,
-                self.i18n("unsaved_changes_title"),
-                self.i18n("unsaved_changes"),
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save
-            )
+                self, self.i18n("unsaved_changes_title"), self.i18n("unsaved_changes"),
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Save)
             if reply == QMessageBox.Save:
                 self._save_project()
                 if self._project_dirty:
                     return
             elif reply == QMessageBox.Cancel:
                 return
-
         filename, _ = QFileDialog.getOpenFileName(
-            self,
-            self.i18n("open_project"),
-            "",
-            self.i18n("project_files")
-        )
+            self, self.i18n("open_project"), "", self.i18n("project_files"))
         if filename:
             self._load_project_file(filename)
 
     def _load_project_file(self, filepath: str):
-        """Decrypt, validate, and load project file."""
         path = Path(filepath)
         if not path.exists():
             return
-
         try:
             from src.project_manager import decrypt_project_data
             from cryptography.fernet import InvalidToken
-            
             with open(path, "rb") as f:
                 encrypted_data = f.read()
-
             try:
                 state = decrypt_project_data(encrypted_data)
             except (InvalidToken, Exception):
                 QMessageBox.critical(
-                    self,
-                    self.i18n("project_corrupted_title"),
-                    self.i18n("project_corrupted")
-                )
+                    self, self.i18n("project_corrupted_title"), self.i18n("project_corrupted"))
                 self._log(f"{self.i18n('log_error')} {self.i18n('project_corrupted')}", "err")
                 return
-
             self._apply_project_state(state)
-            
             if path.name != "autosave.qif":
                 self._project_dirty = False
                 self._add_to_recent_projects(str(path))
@@ -1684,21 +1234,15 @@ class App(QMainWindow):
             else:
                 self._project_dirty = True
                 self._log(f"{self.i18n('log_success')} Temporary session auto-recovered", "ok")
-
         except Exception as e:
             self._log(f"{self.i18n('log_error')} Error loading project: {e}", "err")
             QMessageBox.critical(self, self.i18n("error_title"), f"Error loading project: {e}")
 
     def closeEvent(self, event):
-        """Handle window close event with unsaved changes prompt."""
         if self._project_dirty:
             reply = QMessageBox.question(
-                self,
-                self.i18n("unsaved_changes_title"),
-                self.i18n("unsaved_changes"),
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save
-            )
+                self, self.i18n("unsaved_changes_title"), self.i18n("unsaved_changes"),
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Save)
             if reply == QMessageBox.Save:
                 self._save_project()
                 if self._project_dirty:
@@ -1707,7 +1251,5 @@ class App(QMainWindow):
             elif reply == QMessageBox.Cancel:
                 event.ignore()
                 return
-
         self._auto_save_temp()
         event.accept()
-
