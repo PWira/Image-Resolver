@@ -220,6 +220,8 @@ class InteractiveCropView(QGraphicsView):
         # Image
         self._pm_item = None
         self._scale = 1.0
+        self._sx = 1.0
+        self._sy = 1.0
         self._img_sz = (0, 0)
         self._bounds = QRectF()
 
@@ -279,6 +281,8 @@ class InteractiveCropView(QGraphicsView):
 
         self._pm_item = self._scene.addPixmap(pm)
         self._bounds = QRectF(pm.rect())
+        self._sx = pm.width() / iw if iw > 0 else self._scale
+        self._sy = pm.height() / ih if ih > 0 else self._scale
         self._scene.setSceneRect(self._bounds)
 
         self._crop = QRectF(self._bounds)
@@ -294,14 +298,15 @@ class InteractiveCropView(QGraphicsView):
         self._crop = QRectF()
         self._bounds = QRectF()
         self._img_sz = (0, 0)
+        self._sx = 1.0
+        self._sy = 1.0
 
     def set_crop_rect(self, x, y, w, h):
         """Set crop rectangle from image-pixel coordinates (external sync)."""
-        if self._locked or self._scale <= 0:
+        if self._locked or self._sx <= 0 or self._sy <= 0:
             return
         self._locked = True
-        s = self._scale
-        self._crop = QRectF(x * s, y * s, w * s, h * s)
+        self._crop = QRectF(x * self._sx, y * self._sy, w * self._sx, h * self._sy)
         self._clamp()
         self._redraw()
         self._locked = False
@@ -322,14 +327,13 @@ class InteractiveCropView(QGraphicsView):
 
     def _to_img(self):
         """Convert current scene-crop to image-pixel coords."""
-        s = self._scale
-        if s <= 0:
+        if self._sx <= 0 or self._sy <= 0:
             return 0, 0, 0, 0
         iw, ih = self._img_sz
-        x = max(0, round(self._crop.x() / s))
-        y = max(0, round(self._crop.y() / s))
-        w = max(1, min(round(self._crop.width() / s), iw - x))
-        h = max(1, min(round(self._crop.height() / s), ih - y))
+        x = max(0, round(self._crop.x() / self._sx))
+        y = max(0, round(self._crop.y() / self._sy))
+        w = max(1, min(round(self._crop.width() / self._sx), iw - x))
+        h = max(1, min(round(self._crop.height() / self._sy), ih - y))
         return x, y, w, h
 
     def _emit(self):
@@ -340,20 +344,43 @@ class InteractiveCropView(QGraphicsView):
         self._locked = False
 
     def _clamp(self):
-        b, r = self._bounds, self._crop
-        if r.width() < self._MIN:
-            r.setWidth(self._MIN)
-        if r.height() < self._MIN:
-            r.setHeight(self._MIN)
-        if r.left() < b.left():
-            r.moveLeft(b.left())
-        if r.top() < b.top():
-            r.moveTop(b.top())
-        if r.right() > b.right():
-            r.moveRight(b.right())
-        if r.bottom() > b.bottom():
-            r.moveBottom(b.bottom())
-        self._crop = r
+        if self._sx <= 0 or self._sy <= 0:
+            return
+
+        # 1. Map to image space coordinates (as integers)
+        x = round(self._crop.x() / self._sx)
+        y = round(self._crop.y() / self._sy)
+        w = round(self._crop.width() / self._sx)
+        h = round(self._crop.height() / self._sy)
+
+        # 2. Bound checks against the original image dimensions
+        iw, ih = self._img_sz
+
+        # Ensure minimum size is at least 1 image pixel
+        min_pixels_w = max(1, round(self._MIN / self._sx))
+        min_pixels_h = max(1, round(self._MIN / self._sy))
+
+        w = max(min_pixels_w, w)
+        h = max(min_pixels_h, h)
+
+        # Ensure we fit within the image bounds
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        if x + w > iw:
+            w = iw - x
+            if w < min_pixels_w:
+                x = max(0, iw - min_pixels_w)
+                w = iw - x
+        if y + h > ih:
+            h = ih - y
+            if h < min_pixels_h:
+                y = max(0, ih - min_pixels_h)
+                h = ih - y
+
+        # 3. Save snapped scene coordinates
+        self._crop = QRectF(x * self._sx, y * self._sy, w * self._sx, h * self._sy)
 
     # ── overlay drawing ──────────────────────────────────
 
@@ -389,8 +416,9 @@ class InteractiveCropView(QGraphicsView):
         _dim(sb.left(), cr.top(), cr.left() - sb.left(), cr.height())
         _dim(cr.right(), cr.top(), sb.right() - cr.right(), cr.height())
 
-        self._gfx_border = self._scene.addRect(
-            cr, QPen(QColor(theme.GOLD), 2, Qt.DashLine))
+        border_pen = QPen(QColor(theme.GOLD), 1, Qt.SolidLine)
+        border_pen.setCosmetic(True)
+        self._gfx_border = self._scene.addRect(cr, border_pen)
 
         hs = self._HD
         hp, hb = QPen(QColor("#000000"), 1), QBrush(QColor(theme.GOLD))
