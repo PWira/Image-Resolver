@@ -29,6 +29,7 @@ TRANSLATIONS = {
         "tab_crop": "Crop Images",
         "tab_adjustments": "Adjustments",
         "tab_lut": "LUT",
+        "tab_export": "Export",
 
         # LUT tab
         "lut_section": "LUT Color Grading",
@@ -165,6 +166,7 @@ TRANSLATIONS = {
         "tab_crop": "Potong Gambar",
         "tab_adjustments": "Penyesuaian",
         "tab_lut": "LUT",
+        "tab_export": "Ekspor",
 
         # LUT tab
         "lut_section": "Warna Color Grading LUT",

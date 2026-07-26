@@ -147,6 +147,9 @@ def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[float, float, float]:
         return v, p, q
 
 
+import numpy as np
+
+
 def generate_lut_table_data(
     brightness: float = 0.0,     # -100 to +100
     contrast: float = 0.0,       # -100 to +100
@@ -161,11 +164,11 @@ def generate_lut_table_data(
     size: int = 17
 ) -> List[float]:
     """
-    Generate flattened RGB float array for a 3D LUT of size `size` based on color parameters.
+    Generate flattened RGB float array for a 3D LUT of size `size` using NumPy vectorization.
     """
-    table = []
+    idx = np.linspace(0.0, 1.0, size, dtype=np.float32)
+    b_grid, g_grid, r_grid = np.meshgrid(idx, idx, idx, indexing="ij")
 
-    # Pre-calculated parameters
     b_offset = brightness / 100.0 * 0.5
     c_factor = (255.0 + contrast * 2.55) / 255.0 if contrast >= 0 else (255.0 + contrast * 1.5) / 255.0
     c_factor = max(0.01, c_factor)
@@ -175,50 +178,30 @@ def generate_lut_table_data(
     tint_g = 1.0 + (tint / 100.0) * 0.2
     inv_gamma = 1.0 / max(0.1, gamma)
 
-    for b_idx in range(size):
-        b_in = b_idx / (size - 1)
-        for g_idx in range(size):
-            g_in = g_idx / (size - 1)
-            for r_idx in range(size):
-                r_in = r_idx / (size - 1)
+    r = r_grid * (r_gain * temp_r)
+    g = g_grid * (g_gain * tint_g)
+    b = b_grid * (b_gain * temp_b)
 
-                r, g, b = r_in, g_in, b_in
+    r = (r - 0.5) * c_factor + 0.5 + b_offset
+    g = (g - 0.5) * c_factor + 0.5 + b_offset
+    b = (b - 0.5) * c_factor + 0.5 + b_offset
 
-                # 1. RGB Gains & Temperature / Tint
-                r = r * r_gain * temp_r
-                g = g * g_gain * tint_g
-                b = b * b_gain * temp_b
+    r = np.clip(r, 0.0, 1.0)
+    g = np.clip(g, 0.0, 1.0)
+    b = np.clip(b, 0.0, 1.0)
 
-                # 2. Brightness & Contrast
-                r = (r - 0.5) * c_factor + 0.5 + b_offset
-                g = (g - 0.5) * c_factor + 0.5 + b_offset
-                b = (b - 0.5) * c_factor + 0.5 + b_offset
+    if inv_gamma != 1.0:
+        r = r ** inv_gamma
+        g = g ** inv_gamma
+        b = b ** inv_gamma
 
-                # Clamp before gamma
-                r = max(0.0, min(1.0, r))
-                g = max(0.0, min(1.0, g))
-                b = max(0.0, min(1.0, b))
+    if sat_factor != 1.0 or hue_shift != 0.0:
+        gray = 0.299 * r + 0.587 * g + 0.114 * b
+        r = np.clip(gray + (r - gray) * sat_factor, 0.0, 1.0)
+        g = np.clip(gray + (g - gray) * sat_factor, 0.0, 1.0)
+        b = np.clip(gray + (b - gray) * sat_factor, 0.0, 1.0)
 
-                # 3. Gamma correction
-                if inv_gamma != 1.0:
-                    r = r ** inv_gamma
-                    g = g ** inv_gamma
-                    b = b ** inv_gamma
-
-                # 4. Saturation & Hue Shift
-                if sat_factor != 1.0 or hue_shift != 0.0:
-                    h, s, v = rgb_to_hsv(r, g, b)
-                    h = (h + hue_shift) % 360.0
-                    s = min(1.0, max(0.0, s * sat_factor))
-                    r, g, b = hsv_to_rgb(h, s, v)
-
-                # Final clamp
-                r = max(0.0, min(1.0, r))
-                g = max(0.0, min(1.0, g))
-                b = max(0.0, min(1.0, b))
-
-                table.extend([r, g, b])
-
+    table = np.stack([r, g, b], axis=-1).astype(np.float32).reshape(-1).tolist()
     return table
 
 

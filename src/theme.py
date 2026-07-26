@@ -631,6 +631,19 @@ def get_stylesheet() -> str:
     }}
 
     /* ── Photoshop-Style QSliders ──────────────────────── */
+    QSlider {{
+        background: transparent;
+        height: 18px;
+    }}
+
+    QSlider::sub-page:horizontal {{
+        background: transparent;
+    }}
+
+    QSlider::add-page:horizontal {{
+        background: transparent;
+    }}
+
     QSlider::groove:horizontal {{
         height: 4px;
         background: #333333;

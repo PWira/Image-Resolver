@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QApplication, QSplitter, QScrollArea, QDialog, QStackedWidget, QMenu,
     QColorDialog, QTabWidget, QGroupBox,
 )
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QPixmap, QColor, QIcon
 from PIL import Image
 
@@ -144,6 +144,12 @@ class App(QMainWindow):
         # Viewport zoom/pan state retention per image index
         self._view_transforms: Dict[int, Tuple[object, int, int]] = {}
         self._current_file_row: Optional[int] = None
+
+        # Fast Preview Cache & Debounced Autosave Timer
+        self._preview_cache: Dict[str, Image.Image] = {}
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.timeout.connect(self._do_auto_save_temp)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -404,6 +410,7 @@ class App(QMainWindow):
 
         self.main_nav_tabs.setTabText(0, self.i18n("tab_adjustments"))
         self.main_nav_tabs.setTabText(1, self.i18n("tab_lut"))
+        self.main_nav_tabs.setTabText(2, self.i18n("tab_export"))
 
         self.lbl_pick_images.setText(self.i18n("pick_images"))
         self.btn_add_files.setText(self.i18n("add_files"))
@@ -617,13 +624,15 @@ class App(QMainWindow):
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(10)
 
-        # 1. Top Navigation Tab Bar (Photoshop style)
+        # 1. Top Navigation Tab Bar (Photoshop style: Adjustments, LUT, Export)
         self.main_nav_tabs = QTabWidget()
         self.tab_adjustments = QWidget()
         self.tab_lut = QWidget()
+        self.tab_export = QWidget()
 
         self.main_nav_tabs.addTab(self.tab_adjustments, "Adjustments")
         self.main_nav_tabs.addTab(self.tab_lut, "LUT")
+        self.main_nav_tabs.addTab(self.tab_export, "Export")
         main_layout.addWidget(self.main_nav_tabs, stretch=1)
 
         # ── Build Tab 1: Adjustments ─────────────────────
@@ -837,24 +846,26 @@ class App(QMainWindow):
         lcl.addWidget(self.lut_gen_title)
 
         gen_vbox = QVBoxLayout()
-        gen_vbox.setSpacing(6)
+        gen_vbox.setSpacing(4)
 
         def _add_gen_slider(lbl_widget, slider_name, val_label_name, min_v, max_v, init_v, is_float=False):
             item_box = QVBoxLayout()
-            item_box.setSpacing(2)
-            item_box.setContentsMargins(0, 2, 0, 4)
+            item_box.setSpacing(1)
+            item_box.setContentsMargins(0, 1, 0, 2)
 
             top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(4)
             v_lbl = QLabel(f"{init_v/100:.2f}" if is_float else str(init_v))
-            v_lbl.setFixedWidth(40)
+            v_lbl.setFixedWidth(36)
             v_lbl.setAlignment(Qt.AlignCenter)
             v_lbl.setStyleSheet(f"""
                 QLabel {{
                     background: #252526;
                     color: {theme.TEXT_PRIMARY};
                     border: 1px solid {theme.BORDER};
-                    border-radius: 3px;
-                    padding: 1px 4px;
+                    border-radius: 2px;
+                    padding: 0px 2px;
                     font-size: 8pt;
                     font-family: monospace;
                 }}
@@ -868,6 +879,7 @@ class App(QMainWindow):
             slider.setObjectName(slider_name)
             slider.setRange(min_v, max_v)
             slider.setValue(init_v)
+            slider.setFixedHeight(14)
             if is_float:
                 slider.valueChanged.connect(lambda v: v_lbl.setText(f"{v/100:.2f}"))
             else:
@@ -916,20 +928,10 @@ class App(QMainWindow):
         lut_layout.addWidget(self.lut_controls_panel)
         lut_layout.addStretch(1)
 
-        # ── 2. Bottom Standalone Export Widget ─────────────
-        self.export_panel = QFrame()
-        self.export_panel.setObjectName("cardPanel")
-        self.export_panel.setStyleSheet(f"""
-            QFrame#cardPanel {{
-                background-color: {theme.CARD_BG};
-                border: 1px solid {theme.BORDER};
-                border-radius: 6px;
-                padding: 10px;
-            }}
-        """)
-        exp_layout = QVBoxLayout(self.export_panel)
-        exp_layout.setContentsMargins(8, 8, 8, 8)
-        exp_layout.setSpacing(8)
+        # ── 3. Build Tab 3: Export ────────────────────────
+        exp_layout = QVBoxLayout(self.tab_export)
+        exp_layout.setContentsMargins(8, 12, 8, 8)
+        exp_layout.setSpacing(10)
 
         self.lbl_export_section = QLabel("Export Settings")
         self.lbl_export_section.setObjectName("headerLabel")
@@ -969,13 +971,13 @@ class App(QMainWindow):
         out_row.addWidget(self.btn_browse_out)
         exp_layout.addLayout(out_row)
 
+        exp_layout.addStretch(1)
+
         # EXPORT button
         self.btn_export = QPushButton()
         self.btn_export.setObjectName("primaryBtn")
         self.btn_export.clicked.connect(self._run_export)
         exp_layout.addWidget(self.btn_export)
-
-        main_layout.addWidget(self.export_panel)
 
     # ---- Handlers ----
 
@@ -1313,10 +1315,21 @@ class App(QMainWindow):
         self.crop_nav_label.setText("")
         self.lut_nav_label.setText("")
 
+    def _get_preview_image(self, path: str, max_dim: int = 960) -> Image.Image:
+        if path not in self._preview_cache:
+            img = open_image(Path(path))
+            w, h = img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / float(max(w, h))
+                new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+                img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+            self._preview_cache[path] = img
+        return self._preview_cache[path].copy()
+
     def _load_convert_preview(self, path: str, retain_zoom: bool = False):
         try:
             row = self.file_list.currentRow()
-            img = open_image(Path(path))
+            img = self._get_preview_image(path)
             lut_obj, intensity = self._get_active_lut(row)
             if lut_obj:
                 img = apply_lut(img, lut_obj, intensity)
@@ -1409,6 +1422,7 @@ class App(QMainWindow):
         self._files.clear()
         self._crop_data.clear()
         self._lut_per_image_data.clear()
+        self._preview_cache.clear()
         self._clear_viewport()
         self._update_count()
         self._auto_save_temp()
@@ -1467,7 +1481,8 @@ class App(QMainWindow):
         self.crop_prev_btn.setEnabled(index > 0)
         self.crop_next_btn.setEnabled(index < self.file_list.count() - 1)
         try:
-            pil_img = open_image(Path(self._files[index]))
+            path = self._files[index]
+            pil_img = self._get_preview_image(path)
             lut_obj, intensity = self._get_active_lut(index)
             if lut_obj:
                 pil_img = apply_lut(pil_img, lut_obj, intensity)
@@ -1493,7 +1508,7 @@ class App(QMainWindow):
     def _crop_same_load_preview(self, path: str, retain_zoom: bool = False):
         try:
             row = self.file_list.currentRow()
-            pil_img = open_image(Path(path))
+            pil_img = self._get_preview_image(path)
             lut_obj, intensity = self._get_active_lut(row)
             if lut_obj:
                 pil_img = apply_lut(pil_img, lut_obj, intensity)
@@ -1674,6 +1689,9 @@ class App(QMainWindow):
         if self._crop_updating or self._lut_updating:
             return
         self._project_dirty = True
+        self._autosave_timer.start(300)
+
+    def _do_auto_save_temp(self):
         try:
             from src.project_manager import encrypt_project_data
             state = self._get_project_state()
