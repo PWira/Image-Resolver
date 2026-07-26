@@ -55,3 +55,7 @@ PDF_EXT = {".pdf"}
 NEEDS_RGB  = {"JPEG", "BMP", "PCX", "PPM", "SGI", "TGA", "DDS"}
 NEEDS_RGBA = {"ICO", "ICNS"}
 QUALITY_FMT = {"JPEG", "WEBP", "AVIF"}
+
+# Ekstensi LUT yang didukung
+LUT_EXTS = {".cube", ".3dl"}
+

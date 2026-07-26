@@ -255,8 +255,19 @@ class InteractiveCropView(QGraphicsView):
 
     # ── public API ────────────────────────────────────────
 
-    def load_image(self, pil_img):
-        """Display *pil_img* fitted to the viewport."""
+    def load_image(self, pil_img, retain_zoom: bool = False):
+        """Display *pil_img* fitted to the viewport, optionally retaining zoom/pan state."""
+        saved_transform = None
+        saved_h = 0
+        saved_v = 0
+        saved_crop = None
+
+        if retain_zoom and self._pm_item:
+            saved_transform = self.transform()
+            saved_h = self.horizontalScrollBar().value()
+            saved_v = self.verticalScrollBar().value()
+            saved_crop = QRectF(self._crop)
+
         self._img_sz = pil_img.size
         iw, ih = pil_img.size
 
@@ -285,8 +296,18 @@ class InteractiveCropView(QGraphicsView):
         self._sy = pm.height() / ih if ih > 0 else self._scale
         self._scene.setSceneRect(self._bounds)
 
-        self._crop = QRectF(self._bounds)
+        if saved_crop and not saved_crop.isNull():
+            self._crop = saved_crop
+        else:
+            self._crop = QRectF(self._bounds)
         self._redraw()
+
+        if saved_transform is not None:
+            self.setTransform(saved_transform)
+            self.horizontalScrollBar().setValue(saved_h)
+            self.verticalScrollBar().setValue(saved_v)
+        else:
+            self.resetTransform()
 
     def clear_image(self):
         """Remove the loaded image and all overlays."""
@@ -653,12 +674,22 @@ class FittedImageView(QGraphicsView):
         if not sr.isNull() and self._pm_item:
             painter.fillRect(sr, create_checkerboard_brush())
 
-    def load_image(self, pil_img):
-        self.resetTransform()
+    def load_image(self, pil_img, retain_zoom: bool = False):
+        saved_transform = None
+        saved_h = 0
+        saved_v = 0
+
+        if retain_zoom and self._pm_item:
+            saved_transform = self.transform()
+            saved_h = self.horizontalScrollBar().value()
+            saved_v = self.verticalScrollBar().value()
+
         self._pil_img = pil_img
         self._scene.clear()
         self._pm_item = None
         if not pil_img:
+            if not retain_zoom:
+                self.resetTransform()
             return
         iw, ih = pil_img.size
         rgba = pil_img.convert("RGBA") if pil_img.mode != "RGBA" else pil_img
@@ -674,6 +705,13 @@ class FittedImageView(QGraphicsView):
         )
         self._pm_item = self._scene.addPixmap(pm)
         self._scene.setSceneRect(QRectF(pm.rect()))
+
+        if saved_transform is not None:
+            self.setTransform(saved_transform)
+            self.horizontalScrollBar().setValue(saved_h)
+            self.verticalScrollBar().setValue(saved_v)
+        else:
+            self.resetTransform()
 
     def clear_image(self):
         self._pil_img = None

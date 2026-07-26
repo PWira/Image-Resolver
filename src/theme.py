@@ -630,9 +630,95 @@ def get_stylesheet() -> str:
         background-color: rgba(201, 168, 76, 0.05);
     }}
 
+    /* ── Photoshop-Style QSliders ──────────────────────── */
+    QSlider::groove:horizontal {{
+        height: 4px;
+        background: #333333;
+        border: none;
+        border-radius: 2px;
+    }}
+
+    QSlider::handle:horizontal {{
+        background: #E0E0E0;
+        border: 1px solid #111111;
+        width: 10px;
+        height: 12px;
+        margin-top: -4px;
+        margin-bottom: -4px;
+        border-top-left-radius: 2px;
+        border-top-right-radius: 2px;
+        border-bottom-left-radius: 5px;
+        border-bottom-right-radius: 5px;
+    }}
+
+    QSlider::handle:horizontal:hover {{
+        background: #FFFFFF;
+        border-color: #000000;
+    }}
+
+    QSlider::handle:horizontal:pressed {{
+        background: #B0B0B0;
+    }}
+
+    QSlider#lut_gen_hue_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #FF0000, stop:0.17 #FFFF00, stop:0.33 #00FF00,
+            stop:0.5 #00FFFF, stop:0.67 #0000FF, stop:0.83 #FF00FF, stop:1 #FF0000);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_temp_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #3A88EE, stop:0.5 #555555, stop:1 #EE983A);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_tint_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #3AEE68, stop:0.5 #555555, stop:1 #EE3AE3);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_b_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #111111, stop:0.5 #666666, stop:1 #EEEEEE);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_s_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #555555, stop:1 #FF3B3B);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_r_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #222222, stop:1 #FF4444);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_g_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #222222, stop:1 #44FF44);
+        border-radius: 2px;
+    }}
+
+    QSlider#lut_gen_b_gain_slider::groove:horizontal {{
+        height: 4px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #222222, stop:1 #4488FF);
+        border-radius: 2px;
+    }}
+
     QPushButton#settingsBtn::menu-indicator {{
         image: none;
         width: 0;
     }}
     """
-
