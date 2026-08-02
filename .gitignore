@@ -137,4 +137,15 @@ dist/
 #Extra utils
 depricated/
 logs.txt
-plan.txt
+plan.txt
+*.cmd
+*.exe
+*.bak
+*.bak/
+main.dist/
+main.build/
+main.onefile-build/
+main.onefile-build.spec
+main.spec
+nuitka-crash-report.xml
+autosave.qif
