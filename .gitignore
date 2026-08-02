@@ -149,3 +149,4 @@ main.onefile-build.spec
 main.spec
 nuitka-crash-report.xml
 autosave.qif
+node.md

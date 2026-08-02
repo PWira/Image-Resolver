@@ -230,10 +230,89 @@ def do_center_crop(
     width = min(width, iw)
     height = min(height, ih)
     
+    anchor = (anchor or "center").lower()
     if anchor == "top-left":
         x, y = 0, 0
+    elif anchor == "top-right":
+        x, y = max(0, iw - width), 0
+    elif anchor == "bottom-left":
+        x, y = 0, max(0, ih - height)
+    elif anchor == "bottom-right":
+        x, y = max(0, iw - width), max(0, ih - height)
+    elif anchor == "top-center":
+        x, y = max(0, (iw - width) // 2), 0
+    elif anchor == "bottom-center":
+        x, y = max(0, (iw - width) // 2), max(0, ih - height)
     else:  # center
-        x = (iw - width) // 2
-        y = (ih - height) // 2
+        x = max(0, (iw - width) // 2)
+        y = max(0, (ih - height) // 2)
     
     return img.crop((x, y, x + width, y + height))
+
+
+def composite_folder_images(images: list[Image.Image], layout: str = "vertical") -> Image.Image:
+    """
+    Combine multiple PIL Image layers into a single merged image file.
+
+    Args:
+        images: List of PIL Image objects
+        layout: "vertical", "horizontal", "grid", or "overlay"
+
+    Returns:
+        Merged PIL Image object
+    """
+    if not images:
+        return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+
+    if len(images) == 1:
+        return images[0].copy()
+
+    # Convert all images to RGBA for consistent compositing
+    rgba_imgs = [img.convert("RGBA") for img in images]
+    max_w = max(img.width for img in rgba_imgs)
+    max_h = max(img.height for img in rgba_imgs)
+
+    layout = (layout or "vertical").lower()
+
+    if layout == "horizontal":
+        total_w = sum(img.width for img in rgba_imgs)
+        canvas = Image.new("RGBA", (total_w, max_h), (0, 0, 0, 0))
+        cur_x = 0
+        for img in rgba_imgs:
+            y_off = (max_h - img.height) // 2
+            canvas.alpha_composite(img, (cur_x, y_off))
+            cur_x += img.width
+        return canvas
+
+    elif layout == "grid":
+        import math
+        n = len(rgba_imgs)
+        cols = int(math.ceil(math.sqrt(n)))
+        rows = int(math.ceil(n / cols))
+        canvas = Image.new("RGBA", (cols * max_w, rows * max_h), (0, 0, 0, 0))
+        for idx, img in enumerate(rgba_imgs):
+            c = idx % cols
+            r = idx // cols
+            x_off = c * max_w + (max_w - img.width) // 2
+            y_off = r * max_h + (max_h - img.height) // 2
+            canvas.alpha_composite(img, (x_off, y_off))
+        return canvas
+
+    elif layout == "overlay":
+        canvas = Image.new("RGBA", (max_w, max_h), (0, 0, 0, 0))
+        for img in rgba_imgs:
+            x_off = (max_w - img.width) // 2
+            y_off = (max_h - img.height) // 2
+            canvas.alpha_composite(img, (x_off, y_off))
+        return canvas
+
+    else:  # "vertical"
+        total_h = sum(img.height for img in rgba_imgs)
+        canvas = Image.new("RGBA", (max_w, total_h), (0, 0, 0, 0))
+        cur_y = 0
+        for img in rgba_imgs:
+            x_off = (max_w - img.width) // 2
+            canvas.alpha_composite(img, (cur_y, x_off) if False else (x_off, cur_y))
+            cur_y += img.height
+        return canvas
+

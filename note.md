@@ -1,0 +1,1 @@
+tambah bagian crop "start from"

@@ -16,14 +16,18 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QFileDialog, QMessageBox, QProgressBar, QTextEdit,
     QCheckBox, QRadioButton, QButtonGroup, QFrame, QAbstractItemView,
     QApplication, QSplitter, QScrollArea, QDialog, QStackedWidget, QMenu,
-    QColorDialog, QTabWidget, QGroupBox,
+    QColorDialog, QTabWidget, QGroupBox, QTreeWidget, QTreeWidgetItem,
+    QDialogButtonBox, QFormLayout,
 )
 from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QPixmap, QColor, QIcon
 from PIL import Image
 
 from src.constants import OUTPUT_FORMATS, EXT_MAP, INPUT_EXTS, LUT_EXTS
-from src.image_processor import open_image, save_image, do_resize, do_crop, do_center_crop
+from src.image_processor import (
+    open_image, save_image, do_resize, do_crop, do_center_crop,
+    composite_folder_images
+)
 from src.lut_processor import (
     apply_lut, load_lut_file, get_preset_lut, generate_lut_from_settings,
     export_lut_to_cube, PRESET_LUT_SETTINGS
@@ -99,6 +103,127 @@ class ProgressDialog(QDialog):
         self.status_label.setText(done_text)
         self.set_progress(100)
         self.btn_close.setEnabled(True)
+
+
+class FolderSettingsDialog(QDialog):
+    """Dialog for configuring folder manipulation mode and single-image layer export mode."""
+
+    def __init__(self, parent=None, title="Folder Settings", name="New Folder", mode="same", export_mode="separate", merge_layout="vertical", i18n=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(380)
+        self.i18n = i18n or (lambda k: k)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        self.name_edit = QLineEdit(name)
+        form.addRow("Folder Name:", self.name_edit)
+        layout.addLayout(form)
+
+        # Manipulation mode group
+        mode_group_box = QGroupBox(self.i18n("folder_mode"))
+        mode_layout = QVBoxLayout(mode_group_box)
+        self.radio_mode_same = QRadioButton(self.i18n("mode_same"))
+        self.radio_mode_indiv = QRadioButton(self.i18n("mode_individual"))
+        if mode == "same":
+            self.radio_mode_same.setChecked(True)
+        else:
+            self.radio_mode_indiv.setChecked(True)
+        mode_layout.addWidget(self.radio_mode_same)
+        mode_layout.addWidget(self.radio_mode_indiv)
+        layout.addWidget(mode_group_box)
+
+        # Export mode group
+        export_group_box = QGroupBox(self.i18n("folder_export_mode"))
+        exp_layout = QVBoxLayout(export_group_box)
+        self.radio_exp_sep = QRadioButton(self.i18n("export_separate_files"))
+        self.radio_exp_single = QRadioButton(self.i18n("export_single_image"))
+        if export_mode == "single_image":
+            self.radio_exp_single.setChecked(True)
+        else:
+            self.radio_exp_sep.setChecked(True)
+        exp_layout.addWidget(self.radio_exp_sep)
+        exp_layout.addWidget(self.radio_exp_single)
+
+        # Merge Layout combo
+        layout_row = QHBoxLayout()
+        layout_row.addWidget(QLabel(self.i18n("merge_layout") + ":"))
+        self.combo_layout = QComboBox()
+        self.combo_layout.addItem(self.i18n("layout_vertical"), "vertical")
+        self.combo_layout.addItem(self.i18n("layout_horizontal"), "horizontal")
+        self.combo_layout.addItem(self.i18n("layout_grid"), "grid")
+        self.combo_layout.addItem(self.i18n("layout_overlay"), "overlay")
+
+        idx = self.combo_layout.findData(merge_layout)
+        if idx >= 0:
+            self.combo_layout.setCurrentIndex(idx)
+        layout_row.addWidget(self.combo_layout)
+        exp_layout.addLayout(layout_row)
+
+        # Keep combo_layout enabled and interactive always
+        self.combo_layout.setEnabled(True)
+
+        layout.addWidget(export_group_box)
+
+        # Button Box
+        bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bbox.accepted.connect(self.accept)
+        bbox.rejected.connect(self.reject)
+        layout.addWidget(bbox)
+
+    def get_settings(self):
+        selected_data = self.combo_layout.currentData()
+        if not selected_data:
+            selected_data = "vertical"
+        return {
+            "name": self.name_edit.text().strip() or "Folder",
+            "mode": "same" if self.radio_mode_same.isChecked() else "individual",
+            "export_mode": "single_image" if self.radio_exp_single.isChecked() else "separate",
+            "merge_layout": selected_data
+        }
+
+
+class CustomFileTreeWidget(QTreeWidget):
+    """QTreeWidget with custom drag-and-drop behavior to insert dropped files at index 0 of target folder."""
+
+    def dropEvent(self, event):
+        target_item = self.itemAt(event.position().toPoint())
+        selected_items = self.selectedItems()
+        if not selected_items:
+            super().dropEvent(event)
+            return
+
+        folder_item = None
+        if target_item:
+            if target_item.data(0, Qt.UserRole + 1) == "folder":
+                folder_item = target_item
+            elif target_item.parent() and target_item.parent().data(0, Qt.UserRole + 1) == "folder":
+                folder_item = target_item.parent()
+
+        if folder_item:
+            items_to_move = [i for i in selected_items if i != folder_item]
+            for item in reversed(items_to_move):
+                parent = item.parent()
+                if parent:
+                    parent.removeChild(item)
+                else:
+                    idx = self.indexOfTopLevelItem(item)
+                    if idx >= 0:
+                        self.takeTopLevelItem(idx)
+                # Prepend at very top (index 0)
+                folder_item.insertChild(0, item)
+            folder_item.setExpanded(True)
+            event.accept()
+            main_win = self.window()
+            if hasattr(main_win, "_update_folder_item_display"):
+                main_win._update_folder_item_display(folder_item)
+            if hasattr(main_win, "_auto_save_temp"):
+                main_win._auto_save_temp()
+        else:
+            super().dropEvent(event)
 
 
 class App(QMainWindow):
@@ -202,10 +327,7 @@ class App(QMainWindow):
         self.crop_manual_view.cropChanged.connect(self._crop_manual_on_view_changed)
         for sb in (self.crop_x, self.crop_y, self.crop_w, self.crop_h):
             sb.valueChanged.connect(self._crop_manual_update_view)
-        self.crop_aspect.currentIndexChanged.connect(self._crop_update_aspect_ratio)
-
         # Connect signals for LUT
-        self.lut_mode_group.idToggled.connect(self._on_lut_mode_changed)
         self.lut_preset_combo.currentIndexChanged.connect(self._on_lut_preset_changed)
         self.btn_browse_lut.clicked.connect(self._browse_lut_file)
         self.lut_intensity_slider.valueChanged.connect(self._on_lut_intensity_changed)
@@ -230,9 +352,8 @@ class App(QMainWindow):
         self.conv_height.valueChanged.connect(self._auto_save_temp)
         self.conv_scale.valueChanged.connect(self._auto_save_temp)
 
-        self.crop_radio_none.toggled.connect(self._auto_save_temp)
-        self.crop_radio_same.toggled.connect(self._auto_save_temp)
-        self.crop_radio_manual.toggled.connect(self._auto_save_temp)
+        self.crop_enable_check.toggled.connect(self._auto_save_temp)
+        self.lut_enable_check.toggled.connect(self._auto_save_temp)
         self.crop_same_w.valueChanged.connect(self._auto_save_temp)
         self.crop_same_h.valueChanged.connect(self._auto_save_temp)
         self.crop_anchor.currentIndexChanged.connect(self._auto_save_temp)
@@ -313,7 +434,7 @@ class App(QMainWindow):
         self.setStyleSheet(theme.get_stylesheet())
         self._save_settings()
         self._update_ui_texts()
-        self._on_file_selected(self.file_list.currentRow())
+        self._on_file_selected(self._get_current_file_index())
 
     def _choose_custom_color(self):
         initial = QColor(theme.GOLD)
@@ -324,7 +445,7 @@ class App(QMainWindow):
             self.setStyleSheet(theme.get_stylesheet())
             self._save_settings()
             self._update_ui_texts()
-            self._on_file_selected(self.file_list.currentRow())
+            self._on_file_selected(self._get_current_file_index())
 
     def _rebuild_file_menu(self):
         """Create/recreate the unified File menu."""
@@ -413,8 +534,11 @@ class App(QMainWindow):
         self.main_nav_tabs.setTabText(2, self.i18n("tab_export"))
 
         self.lbl_pick_images.setText(self.i18n("pick_images"))
-        self.btn_add_files.setText(self.i18n("add_files"))
-        self.btn_add_folder.setText(self.i18n("add_folder"))
+        self.btn_add.setText(self.i18n("add_files_or_folder"))
+        self.act_add_files.setText("📄 " + self.i18n("add_files"))
+        self.act_add_folder.setText("📁 " + self.i18n("add_folder"))
+        self.act_new_folder.setText("📂 " + self.i18n("new_folder"))
+        self.btn_new_folder.setText(self.i18n("new_folder"))
         self.btn_remove.setText(self.i18n("remove_selected"))
         self.btn_clear.setText(self.i18n("clear_all"))
         self.subfolder_check.setText(self.i18n("include_subfolders"))
@@ -427,9 +551,7 @@ class App(QMainWindow):
         self.lbl_scale.setText(self.i18n("resize_percent"))
 
         self._crop_section_title.setText(self.i18n("crop_section"))
-        self.crop_radio_none.setText(self.i18n("crop_none"))
-        self.crop_radio_same.setText(self.i18n("crop_same_size"))
-        self.crop_radio_manual.setText(self.i18n("crop_one_by_one"))
+        self.crop_enable_check.setText(self.i18n("enable_crop"))
 
         self.lbl_same_w.setText(self.i18n("crop_width"))
         self.lbl_same_h.setText(self.i18n("crop_height"))
@@ -437,7 +559,15 @@ class App(QMainWindow):
 
         curr_anchor = self.crop_anchor.currentIndex()
         self.crop_anchor.clear()
-        self.crop_anchor.addItems([self.i18n("crop_center"), self.i18n("crop_top_left")])
+        self.crop_anchor.addItems([
+            self.i18n("crop_center"),
+            self.i18n("crop_top_left"),
+            self.i18n("crop_top_right"),
+            self.i18n("crop_bottom_left"),
+            self.i18n("crop_bottom_right"),
+            self.i18n("crop_top_center"),
+            self.i18n("crop_bottom_center"),
+        ])
         self.crop_anchor.setCurrentIndex(max(curr_anchor, 0))
 
         self.lbl_manual_x.setText(self.i18n("crop_x"))
@@ -460,9 +590,7 @@ class App(QMainWindow):
 
         # LUT Tab
         self._lut_section_title.setText(self.i18n("lut_section"))
-        self.lut_radio_none.setText(self.i18n("lut_none"))
-        self.lut_radio_same.setText(self.i18n("lut_same_size"))
-        self.lut_radio_manual.setText(self.i18n("lut_one_by_one"))
+        self.lut_enable_check.setText(self.i18n("enable_lut"))
 
         self.lbl_lut_preset.setText(self.i18n("lut_preset"))
         self.lbl_lut_file.setText(self.i18n("lut_load_file"))
@@ -591,16 +719,28 @@ class App(QMainWindow):
 
         btn_grid = QGridLayout()
         btn_grid.setSpacing(6)
-        self.btn_add_files  = QPushButton()
-        self.btn_add_folder = QPushButton()
+        self.btn_add        = QPushButton()
+        self.btn_new_folder = QPushButton()
         self.btn_remove     = QPushButton()
         self.btn_clear      = QPushButton()
-        self.btn_add_files.clicked.connect(self._add_files)
-        self.btn_add_folder.clicked.connect(self._add_folder)
+
+        # Build dropdown menu for unified Add button
+        self.add_menu = QMenu(self)
+        self.act_add_files = self.add_menu.addAction("📄 " + self.i18n("add_files"))
+        self.act_add_files.triggered.connect(self._add_files)
+        self.act_add_folder = self.add_menu.addAction("📁 " + self.i18n("add_folder"))
+        self.act_add_folder.triggered.connect(self._add_folder)
+        self.add_menu.addSeparator()
+        self.act_new_folder = self.add_menu.addAction("📂 " + self.i18n("new_folder"))
+        self.act_new_folder.triggered.connect(self._create_new_folder)
+        self.btn_add.setMenu(self.add_menu)
+
+        self.btn_new_folder.clicked.connect(self._create_new_folder)
         self.btn_remove.clicked.connect(self._remove_selected)
         self.btn_clear.clicked.connect(self._clear_all)
-        btn_grid.addWidget(self.btn_add_files,  0, 0)
-        btn_grid.addWidget(self.btn_add_folder, 0, 1)
+
+        btn_grid.addWidget(self.btn_add,        0, 0)
+        btn_grid.addWidget(self.btn_new_folder, 0, 1)
         btn_grid.addWidget(self.btn_remove,     1, 0)
         btn_grid.addWidget(self.btn_clear,      1, 1)
         layout.addLayout(btn_grid)
@@ -608,11 +748,15 @@ class App(QMainWindow):
         self.subfolder_check = QCheckBox()
         layout.addWidget(self.subfolder_check)
 
-        self.file_list = QListWidget()
-        self.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.file_list.currentRowChanged.connect(self._on_file_selected)
-        self.file_list.setMinimumWidth(180)
-        layout.addWidget(self.file_list, stretch=1)
+        self.file_tree = CustomFileTreeWidget()
+        self.file_tree.setHeaderHidden(True)
+        self.file_tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.file_tree.setDragDropMode(QAbstractItemView.InternalMove)
+        self.file_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_tree.customContextMenuRequested.connect(self._show_tree_context_menu)
+        self.file_tree.currentItemChanged.connect(self._on_tree_item_changed)
+        self.file_tree.setMinimumWidth(180)
+        layout.addWidget(self.file_tree, stretch=1)
 
         self.count_label = QLabel()
         self.count_label.setObjectName("dimLabel")
@@ -673,23 +817,9 @@ class App(QMainWindow):
         self._crop_section_title.setObjectName("headerLabel")
         adj_layout.addWidget(self._crop_section_title)
 
-        self.crop_mode_group  = QButtonGroup(self)
-        self.crop_radio_none   = QRadioButton()
-        self.crop_radio_same   = QRadioButton()
-        self.crop_radio_manual = QRadioButton()
-        self.crop_radio_none.setChecked(True)
-        self.crop_mode_group.addButton(self.crop_radio_none,   self.CROP_NONE)
-        self.crop_mode_group.addButton(self.crop_radio_same,   self.CROP_SAME)
-        self.crop_mode_group.addButton(self.crop_radio_manual, self.CROP_MANUAL)
-        self.crop_mode_group.setExclusive(True)
-        self.crop_mode_group.idToggled.connect(self._on_crop_mode_changed)
-
-        mc = QVBoxLayout()
-        mc.setSpacing(4)
-        mc.addWidget(self.crop_radio_none)
-        mc.addWidget(self.crop_radio_same)
-        mc.addWidget(self.crop_radio_manual)
-        adj_layout.addLayout(mc)
+        self.crop_enable_check = QCheckBox()
+        self.crop_enable_check.toggled.connect(self._on_crop_enable_toggled)
+        adj_layout.addWidget(self.crop_enable_check)
 
         # Same-size sub-panel
         self.crop_same_panel = QWidget()
@@ -778,22 +908,9 @@ class App(QMainWindow):
         self._lut_section_title.setObjectName("headerLabel")
         lut_layout.addWidget(self._lut_section_title)
 
-        self.lut_mode_group  = QButtonGroup(self)
-        self.lut_radio_none   = QRadioButton()
-        self.lut_radio_same   = QRadioButton()
-        self.lut_radio_manual = QRadioButton()
-        self.lut_radio_none.setChecked(True)
-        self.lut_mode_group.addButton(self.lut_radio_none,   self.LUT_NONE)
-        self.lut_mode_group.addButton(self.lut_radio_same,   self.LUT_SAME)
-        self.lut_mode_group.addButton(self.lut_radio_manual, self.LUT_MANUAL)
-        self.lut_mode_group.setExclusive(True)
-
-        lmc = QVBoxLayout()
-        lmc.setSpacing(4)
-        lmc.addWidget(self.lut_radio_none)
-        lmc.addWidget(self.lut_radio_same)
-        lmc.addWidget(self.lut_radio_manual)
-        lut_layout.addLayout(lmc)
+        self.lut_enable_check = QCheckBox()
+        self.lut_enable_check.toggled.connect(self._on_lut_enable_toggled)
+        lut_layout.addWidget(self.lut_enable_check)
 
         # Container panel when LUT is active
         self.lut_controls_panel = QWidget()
@@ -981,48 +1098,67 @@ class App(QMainWindow):
 
     # ---- Handlers ----
 
-    def _on_crop_mode_changed(self, id_: int, checked: bool):
-        """Updates viewport and sub-panels when a crop mode radio is toggled."""
-        if not checked:
-            return
-        self.crop_same_panel.setVisible(id_ == self.CROP_SAME)
-        self.crop_manual_panel.setVisible(id_ == self.CROP_MANUAL)
-        vp_index = {self.CROP_NONE: 0, self.CROP_SAME: 1, self.CROP_MANUAL: 2}.get(id_, 0)
-        self.viewport_stack.setCurrentIndex(vp_index)
-        row = self.file_list.currentRow()
-        if 0 <= row < self.file_list.count():
-            path = self.file_list.item(row).data(Qt.UserRole)
-            if id_ == self.CROP_NONE:
+    def _on_crop_enable_toggled(self, checked: bool):
+        self._update_crop_visibility()
+        self._auto_save_temp()
+
+    def _on_lut_enable_toggled(self, checked: bool):
+        self._update_lut_visibility()
+        self._auto_save_temp()
+
+    def _update_crop_visibility(self):
+        enabled = self.crop_enable_check.isChecked()
+        curr_folder = self._get_folder_node_for_item(self.file_tree.currentItem())
+        folder_mode = curr_folder.data(0, Qt.UserRole + 3) if curr_folder else "same"
+
+        if not enabled:
+            self._crop_mode = self.CROP_NONE
+            self.crop_same_panel.setVisible(False)
+            self.crop_manual_panel.setVisible(False)
+            self.viewport_stack.setCurrentIndex(0)
+        else:
+            if folder_mode == "same":
+                self._crop_mode = self.CROP_SAME
+                self.crop_same_panel.setVisible(True)
+                self.crop_manual_panel.setVisible(False)
+                self.viewport_stack.setCurrentIndex(1)
+            else:
+                self._crop_mode = self.CROP_MANUAL
+                self.crop_same_panel.setVisible(False)
+                self.crop_manual_panel.setVisible(True)
+                self.viewport_stack.setCurrentIndex(2)
+
+        row = self._get_current_file_index()
+        all_items = self._get_all_file_items()
+        if 0 <= row < len(all_items):
+            path = all_items[row].data(0, Qt.UserRole)
+            if self._crop_mode == self.CROP_NONE:
                 self._load_convert_preview(path)
-            elif id_ == self.CROP_SAME:
+            elif self._crop_mode == self.CROP_SAME:
                 self._crop_same_load_preview(path)
-            elif id_ == self.CROP_MANUAL:
+            elif self._crop_mode == self.CROP_MANUAL:
                 self._crop_load_image(row)
 
-    def _on_lut_mode_changed(self, id_: int, checked: bool):
-        """Updates UI and viewport when LUT mode changes."""
-        if not checked:
-            return
-        self._lut_mode = id_
-        self.lut_controls_panel.setVisible(id_ != self.LUT_NONE)
-        self.lut_manual_nav_panel.setVisible(id_ == self.LUT_MANUAL)
+    def _update_lut_visibility(self):
+        enabled = self.lut_enable_check.isChecked()
+        curr_folder = self._get_folder_node_for_item(self.file_tree.currentItem())
+        folder_mode = curr_folder.data(0, Qt.UserRole + 3) if curr_folder else "same"
 
-        if id_ == self.LUT_NONE:
-            self._lut_same_obj = None
-            self._lut_same_file = None
-            self._lut_same_preset = None
-            row = self.file_list.currentRow()
-            if row in self._lut_per_image_data:
-                self._lut_per_image_data[row]["obj"] = None
-        elif id_ == self.LUT_MANUAL:
-            row = self.file_list.currentRow()
-            if row >= 0:
-                self._lut_load_image_settings(row)
+        if not enabled:
+            self._lut_mode = self.LUT_NONE
+            self.lut_controls_panel.setVisible(False)
+            self.lut_manual_nav_panel.setVisible(False)
         else:
-            self._update_active_lut_object()
+            if folder_mode == "same":
+                self._lut_mode = self.LUT_SAME
+                self.lut_controls_panel.setVisible(True)
+                self.lut_manual_nav_panel.setVisible(False)
+            else:
+                self._lut_mode = self.LUT_MANUAL
+                self.lut_controls_panel.setVisible(True)
+                self.lut_manual_nav_panel.setVisible(True)
 
         self._refresh_current_preview(retain_zoom=True)
-        self._auto_save_temp()
 
     def _on_lut_preset_changed(self, index: int):
         if self._lut_updating:
@@ -1079,7 +1215,7 @@ class App(QMainWindow):
         if self._lut_mode == self.LUT_SAME:
             self._lut_same_intensity = intensity
         elif self._lut_mode == self.LUT_MANUAL:
-            row = self.file_list.currentRow()
+            row = self._get_current_file_index()
             if row >= 0:
                 if row not in self._lut_per_image_data:
                     self._lut_per_image_data[row] = {}
@@ -1164,7 +1300,7 @@ class App(QMainWindow):
             self._lut_same_intensity = intensity
             self._lut_same_settings = gen_settings
         elif self._lut_mode == self.LUT_MANUAL:
-            row = self.file_list.currentRow()
+            row = self._get_current_file_index()
             if row >= 0:
                 self._lut_per_image_data[row] = {
                     "obj": lut_obj,
@@ -1181,28 +1317,31 @@ class App(QMainWindow):
             return self._lut_same_obj, self._lut_same_intensity
         elif self._lut_mode == self.LUT_MANUAL:
             if row < 0:
-                row = self.file_list.currentRow()
+                row = self._get_current_file_index()
             if row in self._lut_per_image_data:
                 d = self._lut_per_image_data[row]
                 return d.get("obj"), d.get("intensity", 1.0)
         return None, 1.0
 
     def _lut_go_prev(self):
-        row = self.file_list.currentRow()
+        all_items = self._get_all_file_items()
+        row = self._get_current_file_index()
         if row > 0:
-            self.file_list.setCurrentRow(row - 1)
+            self.file_tree.setCurrentItem(all_items[row - 1])
 
     def _lut_go_next(self):
-        row = self.file_list.currentRow()
-        if row < self.file_list.count() - 1:
-            self.file_list.setCurrentRow(row + 1)
+        all_items = self._get_all_file_items()
+        row = self._get_current_file_index()
+        if 0 <= row < len(all_items) - 1:
+            self.file_tree.setCurrentItem(all_items[row + 1])
 
     def _lut_load_image_settings(self, index: int):
-        if index < 0 or index >= self.file_list.count():
+        total = len(self._get_all_file_items())
+        if index < 0 or index >= total:
             return
         self._update_lut_nav_label()
         self.lut_prev_btn.setEnabled(index > 0)
-        self.lut_next_btn.setEnabled(index < self.file_list.count() - 1)
+        self.lut_next_btn.setEnabled(index < total - 1)
         self._lut_updating = True
         if index in self._lut_per_image_data:
             d = self._lut_per_image_data[index]
@@ -1249,64 +1388,36 @@ class App(QMainWindow):
         self.lut_gen_b_gain_slider.setValue(100)
 
     def _update_lut_nav_label(self):
-        row = self.file_list.currentRow()
-        total = self.file_list.count()
+        row = self._get_current_file_index()
+        total = len(self._get_all_file_items())
         if row >= 0 and total > 0:
             self.lut_nav_label.setText(self.i18n("crop_image_n_of", current=row + 1, total=total))
         else:
             self.lut_nav_label.setText("")
 
     def _refresh_current_preview(self, retain_zoom: bool = True):
-        row = self.file_list.currentRow()
-        if 0 <= row < self.file_list.count():
-            path = self.file_list.item(row).data(Qt.UserRole)
-            mode = self.crop_mode_group.checkedId()
-            if mode == self.CROP_NONE:
-                self._load_convert_preview(path, retain_zoom=retain_zoom)
-            elif mode == self.CROP_SAME:
-                self._crop_same_load_preview(path, retain_zoom=retain_zoom)
-            elif mode == self.CROP_MANUAL:
-                self._crop_load_image(row, retain_zoom=retain_zoom)
-
-    def _on_file_selected(self, row: int):
-        if row < 0 or row >= self.file_list.count():
-            self._clear_viewport()
+        curr_item = self._get_current_file_item()
+        if not curr_item:
             return
-
-        prev_row = getattr(self, "_current_file_row", None)
-        if prev_row is not None and prev_row != row:
-            curr_view = self.viewport_stack.currentWidget()
-            if hasattr(curr_view, "transform") and hasattr(curr_view, "_pm_item") and curr_view._pm_item:
-                self._view_transforms[prev_row] = (
-                    curr_view.transform(),
-                    curr_view.horizontalScrollBar().value(),
-                    curr_view.verticalScrollBar().value()
-                )
-
-        self._current_file_row = row
-        path = self.file_list.item(row).data(Qt.UserRole)
-        if self._lut_mode == self.LUT_MANUAL:
-            self._lut_load_image_settings(row)
-
-        saved_state = self._view_transforms.get(row)
-        retain = saved_state is not None
-
+        path = curr_item.data(0, Qt.UserRole)
+        if not path:
+            return
+        row = self._get_current_file_index()
         mode = self.crop_mode_group.checkedId()
         if mode == self.CROP_NONE:
-            self._load_convert_preview(path, retain_zoom=retain)
-            curr_view = self.convert_preview
+            self._load_convert_preview(path, retain_zoom=retain_zoom)
         elif mode == self.CROP_SAME:
-            self._crop_same_load_preview(path, retain_zoom=retain)
-            curr_view = self.crop_same_view
+            self._crop_same_load_preview(path, retain_zoom=retain_zoom)
         elif mode == self.CROP_MANUAL:
-            self._crop_load_image(row, retain_zoom=retain)
-            curr_view = self.crop_manual_view
+            self._crop_load_image(row, retain_zoom=retain_zoom)
 
-        if saved_state:
-            tr, h_val, v_val = saved_state
-            curr_view.setTransform(tr)
-            curr_view.horizontalScrollBar().setValue(h_val)
-            curr_view.verticalScrollBar().setValue(v_val)
+    def _on_file_selected(self, row: int):
+        all_items = self._get_all_file_items()
+        if row < 0 or row >= len(all_items):
+            self._clear_viewport()
+            return
+        item = all_items[row]
+        self.file_tree.setCurrentItem(item)
 
     def _clear_viewport(self):
         self.convert_preview.clear_image()
@@ -1328,7 +1439,7 @@ class App(QMainWindow):
 
     def _load_convert_preview(self, path: str, retain_zoom: bool = False):
         try:
-            row = self.file_list.currentRow()
+            row = self._get_current_file_index()
             img = self._get_preview_image(path)
             lut_obj, intensity = self._get_active_lut(row)
             if lut_obj:
@@ -1337,15 +1448,88 @@ class App(QMainWindow):
         except Exception as e:
             self._log(f"{self.i18n('log_error')}  {e}", "err")
 
-    # ---- File management ----
+    # ---- Tree and File management ----
+
+    def _get_all_file_items(self) -> list[QTreeWidgetItem]:
+        items = []
+        root = self.file_tree.invisibleRootItem()
+        def search(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                kind = child.data(0, Qt.UserRole + 1)
+                if kind == "file":
+                    items.append(child)
+                elif kind == "folder":
+                    search(child)
+        search(root)
+        return items
+
+    def _get_all_file_paths(self) -> list[str]:
+        paths = []
+        for item in self._get_all_file_items():
+            p = item.data(0, Qt.UserRole)
+            if p:
+                paths.append(p)
+        return paths
+
+    def _get_current_file_item(self) -> Optional[QTreeWidgetItem]:
+        curr = self.file_tree.currentItem()
+        if curr and curr.data(0, Qt.UserRole + 1) == "file":
+            return curr
+        return None
+
+    def _get_current_folder_item(self) -> Optional[QTreeWidgetItem]:
+        curr = self.file_tree.currentItem()
+        if not curr:
+            return None
+        if curr.data(0, Qt.UserRole + 1) == "folder":
+            return curr
+        parent = curr.parent()
+        if parent and parent.data(0, Qt.UserRole + 1) == "folder":
+            return parent
+        return None
+
+    def _get_current_file_index(self) -> int:
+        curr_item = self._get_current_file_item()
+        if not curr_item:
+            return -1
+        all_items = self._get_all_file_items()
+        try:
+            return all_items.index(curr_item)
+        except ValueError:
+            return -1
+
+    def _create_file_tree_item(self, path: str) -> QTreeWidgetItem:
+        item = QTreeWidgetItem()
+        item.setData(0, Qt.UserRole, path)
+        item.setData(0, Qt.UserRole + 1, "file")
+        p = Path(path)
+        try:
+            img = Image.open(path)
+            w, h = img.size
+            img.close()
+            item.setText(0, f"📄 {p.name}   ({w}×{h})")
+        except Exception:
+            item.setText(0, f"📄 {p.name}")
+        return item
+
+    def _update_folder_item_display(self, folder_item: QTreeWidgetItem):
+        name = folder_item.data(0, Qt.UserRole + 2) or "Folder"
+        mode = folder_item.data(0, Qt.UserRole + 3) or "same"
+        exp_mode = folder_item.data(0, Qt.UserRole + 4) or "separate"
+
+        count = folder_item.childCount()
+        mode_str = "Same" if mode == "same" else "Indiv"
+        exp_str = "Single Img" if exp_mode == "single_image" else "Sep Files"
+
+        folder_item.setText(0, f"📁 {name}   ({count})   [{mode_str} | {exp_str}]")
 
     def _add_files(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, self.i18n("add_files"), "", file_filter_string(self.i18n))
-        for f in files:
-            self._add_path(f)
-        self._update_count()
-        self._auto_load_preview()
+        if files:
+            target_parent = self._get_current_folder_item()
+            self._add_paths_sequential(files, target_parent=target_parent)
 
     def _add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, self.i18n("add_folder"))
@@ -1354,71 +1538,268 @@ class App(QMainWindow):
         recursive = self.subfolder_check.isChecked()
         pattern = "**/*" if recursive else "*"
         try:
+            matched_files = []
             for f in sorted(Path(folder).glob(pattern)):
                 if f.is_file() and f.suffix.lower() in INPUT_EXTS:
-                    self._add_path(str(f))
+                    matched_files.append(str(f))
+            if matched_files:
+                folder_name = Path(folder).name or "Imported Folder"
+                f_item = QTreeWidgetItem()
+                f_item.setData(0, Qt.UserRole + 1, "folder")
+                f_item.setData(0, Qt.UserRole + 2, folder_name)
+                f_item.setData(0, Qt.UserRole + 3, "same")
+                f_item.setData(0, Qt.UserRole + 4, "separate")
+                f_item.setData(0, Qt.UserRole + 5, "vertical")
+                self._update_folder_item_display(f_item)
+                self.file_tree.addTopLevelItem(f_item)
+                f_item.setExpanded(True)
+
+                self._add_paths_sequential(matched_files, target_parent=f_item)
         except Exception as e:
             self._log(f"{self.i18n('log_error')}  Error reading folder: {e}", "err")
-        self._update_count()
-        self._auto_load_preview()
 
-    def _add_path(self, path: str):
-        if path in self._files:
+    def _add_paths_sequential(self, file_paths: list[str], target_parent=None):
+        if not file_paths:
             return
-        self._files.append(path)
-        item = QListWidgetItem()
-        p = Path(path)
-        try:
-            img = Image.open(path)
-            w, h = img.size
-            img.close()
-            item.setText(f"{p.name}   ({w}\u00d7{h})")
-        except Exception:
-            item.setText(p.name)
-        item.setData(Qt.UserRole, path)
-        self.file_list.addItem(item)
-        self._auto_save_temp()
+        existing = set(self._get_all_file_paths())
+        new_paths = [p for p in file_paths if p not in existing and Path(p).exists()]
+        if not new_paths:
+            return
+
+        CHUNK_SIZE = 35
+        total = len(new_paths)
+
+        def process_chunk(start_idx):
+            end_idx = min(start_idx + CHUNK_SIZE, total)
+            for i in range(start_idx, end_idx):
+                fpath = new_paths[i]
+                item = self._create_file_tree_item(fpath)
+                if target_parent:
+                    target_parent.addChild(item)
+                else:
+                    self.file_tree.addTopLevelItem(item)
+                if fpath not in self._files:
+                    self._files.append(fpath)
+
+            if target_parent:
+                self._update_folder_item_display(target_parent)
+
+            self._update_count()
+            QApplication.processEvents()
+
+            if end_idx < total:
+                QTimer.singleShot(1, lambda: process_chunk(end_idx))
+            else:
+                self._update_count()
+                self._auto_load_preview()
+                self._auto_save_temp()
+                self._log(f"{self.i18n('log_success')}  Imported {total} images.", "ok")
+
+        process_chunk(0)
+
+    def _create_new_folder(self):
+        dlg = FolderSettingsDialog(self, title=self.i18n("new_folder"), name="New Folder", i18n=self.i18n)
+        if dlg.exec() == QDialog.Accepted:
+            st = dlg.get_settings()
+            item = QTreeWidgetItem()
+            item.setData(0, Qt.UserRole + 1, "folder")
+            item.setData(0, Qt.UserRole + 2, st["name"])
+            item.setData(0, Qt.UserRole + 3, st["mode"])
+            item.setData(0, Qt.UserRole + 4, st["export_mode"])
+            item.setData(0, Qt.UserRole + 5, st["merge_layout"])
+            self._update_folder_item_display(item)
+
+            self.file_tree.addTopLevelItem(item)
+            item.setExpanded(True)
+            self._auto_save_temp()
+
+    def _show_tree_context_menu(self, pos):
+        item = self.file_tree.itemAt(pos)
+        menu = QMenu(self)
+        if item:
+            kind = item.data(0, Qt.UserRole + 1)
+            if kind == "folder":
+                act_settings = menu.addAction("⚙️ " + self.i18n("folder_properties"))
+                act_settings.triggered.connect(lambda: self._edit_folder_settings(item))
+                act_del = menu.addAction("❌ " + self.i18n("remove_selected"))
+                act_del.triggered.connect(lambda: self._delete_tree_item(item))
+            elif kind == "file":
+                act_del = menu.addAction("❌ " + self.i18n("remove_selected"))
+                act_del.triggered.connect(lambda: self._delete_tree_item(item))
+        else:
+            act_add = menu.addAction("📄 " + self.i18n("add_files"))
+            act_add.triggered.connect(self._add_files)
+            act_folder = menu.addAction("📁 " + self.i18n("add_folder"))
+            act_folder.triggered.connect(self._add_folder)
+            menu.addSeparator()
+            act_new_folder = menu.addAction("📂 " + self.i18n("new_folder"))
+            act_new_folder.triggered.connect(self._create_new_folder)
+        menu.exec(self.file_tree.viewport().mapToGlobal(pos))
+
+    def _edit_folder_settings(self, item: QTreeWidgetItem):
+        name = item.data(0, Qt.UserRole + 2) or "Folder"
+        mode = item.data(0, Qt.UserRole + 3) or "same"
+        exp_mode = item.data(0, Qt.UserRole + 4) or "separate"
+        layout = item.data(0, Qt.UserRole + 5) or "vertical"
+
+        dlg = FolderSettingsDialog(
+            self, title=self.i18n("folder_properties"),
+            name=name, mode=mode, export_mode=exp_mode, merge_layout=layout,
+            i18n=self.i18n
+        )
+        if dlg.exec() == QDialog.Accepted:
+            st = dlg.get_settings()
+            item.setData(0, Qt.UserRole + 2, st["name"])
+            item.setData(0, Qt.UserRole + 3, st["mode"])
+            item.setData(0, Qt.UserRole + 4, st["export_mode"])
+            item.setData(0, Qt.UserRole + 5, st["merge_layout"])
+            self._update_folder_item_display(item)
+            self._auto_save_temp()
+
+    def _get_folder_node_for_item(self, item: Optional[QTreeWidgetItem]) -> Optional[QTreeWidgetItem]:
+        if not item:
+            return None
+        kind = item.data(0, Qt.UserRole + 1)
+        if kind == "folder":
+            return item
+        parent = item.parent()
+        if parent and parent.data(0, Qt.UserRole + 1) == "folder":
+            return parent
+        return None
+
+    def _save_folder_state(self, folder_item: Optional[QTreeWidgetItem]):
+        if not folder_item or folder_item.data(0, Qt.UserRole + 1) != "folder":
+            return
+        lut_state = {
+            "lut_enabled": self.lut_enable_check.isChecked(),
+            "lut_mode": self._lut_mode,
+            "lut_same_file": self._lut_same_file,
+            "lut_same_preset": self._lut_same_preset,
+            "lut_same_intensity": self._lut_same_intensity,
+            "lut_same_settings": dict(self._lut_same_settings) if hasattr(self, "_lut_same_settings") and self._lut_same_settings else {},
+            "lut_same_obj": self._lut_same_obj,
+            "lut_per_image_data": dict(self._lut_per_image_data),
+        }
+        crop_state = {
+            "crop_enabled": self.crop_enable_check.isChecked(),
+            "crop_mode": self._crop_mode,
+            "crop_same_w": self.crop_same_w.value(),
+            "crop_same_h": self.crop_same_h.value(),
+            "crop_anchor": self.crop_anchor.currentIndex(),
+            "crop_aspect": self.crop_aspect.currentIndex(),
+            "crop_data": dict(self._crop_data),
+        }
+        folder_item.setData(0, Qt.UserRole + 6, lut_state)
+        folder_item.setData(0, Qt.UserRole + 7, crop_state)
+
+    def _load_folder_state(self, folder_item: Optional[QTreeWidgetItem]):
+        if not folder_item or folder_item.data(0, Qt.UserRole + 1) != "folder":
+            lut_state = {}
+            crop_state = {}
+        else:
+            lut_state = folder_item.data(0, Qt.UserRole + 6) or {}
+            crop_state = folder_item.data(0, Qt.UserRole + 7) or {}
+
+        self._lut_updating = True
+        self._crop_updating = True
+
+        crop_enabled = crop_state.get("crop_enabled", crop_state.get("crop_mode", 0) != 0)
+        self.crop_enable_check.setChecked(crop_enabled)
+
+        lut_enabled = lut_state.get("lut_enabled", lut_state.get("lut_mode", 0) != 0)
+        self.lut_enable_check.setChecked(lut_enabled)
+
+        self._lut_same_file = lut_state.get("lut_same_file")
+        self._lut_same_preset = lut_state.get("lut_same_preset")
+        self._lut_same_intensity = lut_state.get("lut_same_intensity", 1.0)
+        self._lut_same_settings = dict(lut_state.get("lut_same_settings", {
+            "brightness": 0, "contrast": 0, "saturation": 0, "temperature": 0,
+            "tint": 0, "gamma": 100, "hue_shift": 0, "r_gain": 100, "g_gain": 100, "b_gain": 100
+        }))
+        self._lut_same_obj = lut_state.get("lut_same_obj")
+        self._lut_per_image_data = dict(lut_state.get("lut_per_image_data", {}))
+
+        self.crop_same_w.setValue(crop_state.get("crop_same_w", 800))
+        self.crop_same_h.setValue(crop_state.get("crop_same_h", 600))
+        self.crop_anchor.setCurrentIndex(crop_state.get("crop_anchor", 0))
+        self.crop_aspect.setCurrentIndex(crop_state.get("crop_aspect", 0))
+        self._crop_data = dict(crop_state.get("crop_data", {}))
+
+        self._lut_updating = False
+        self._crop_updating = False
+
+        self._update_crop_visibility()
+        self._update_lut_visibility()
+
+    def _on_tree_item_changed(self, current, previous):
+        if previous:
+            prev_folder = self._get_folder_node_for_item(previous)
+            if prev_folder:
+                self._save_folder_state(prev_folder)
+
+        if not current:
+            self._clear_viewport()
+            return
+
+        curr_folder = self._get_folder_node_for_item(current)
+        if curr_folder:
+            self._load_folder_state(curr_folder)
+        else:
+            self._load_folder_state(None)
+
+        kind = current.data(0, Qt.UserRole + 1)
+        if kind == "file":
+            path = current.data(0, Qt.UserRole)
+            if path:
+                self._refresh_current_preview()
+        elif kind == "folder":
+            if current.childCount() > 0:
+                first_child = current.child(0)
+                path = first_child.data(0, Qt.UserRole)
+                if path:
+                    self._refresh_current_preview()
+
+    def _delete_tree_item(self, item: QTreeWidgetItem, save_temp=True):
+        if not item:
+            return
+        parent = item.parent()
+        if parent:
+            parent.removeChild(item)
+            if parent.data(0, Qt.UserRole + 1) == "folder":
+                self._update_folder_item_display(parent)
+        else:
+            idx = self.file_tree.indexOfTopLevelItem(item)
+            if idx >= 0:
+                self.file_tree.takeTopLevelItem(idx)
+
+        kind = item.data(0, Qt.UserRole + 1)
+        if kind == "file":
+            p = item.data(0, Qt.UserRole)
+            if p in self._files:
+                self._files.remove(p)
+        elif kind == "folder":
+            for i in range(item.childCount()):
+                cp = item.child(i).data(0, Qt.UserRole)
+                if cp in self._files:
+                    self._files.remove(cp)
+
+        if save_temp:
+            self._update_count()
+            self._auto_save_temp()
 
     def _remove_selected(self):
-        selected = self.file_list.selectedItems()
+        selected = self.file_tree.selectedItems()
         if not selected:
             return
-        if self.crop_radio_manual.isChecked():
-            self._crop_save_current_settings()
-        self._crop_index = None
-        rows = sorted([self.file_list.row(i) for i in selected], reverse=True)
-        for row in rows:
-            self.file_list.takeItem(row)
-            if row < len(self._files):
-                self._files.pop(row)
-            if row in self._crop_data:
-                del self._crop_data[row]
-            if row in self._lut_per_image_data:
-                del self._lut_per_image_data[row]
-        for r in rows:
-            tmp_crop = {}
-            for idx, val in self._crop_data.items():
-                if idx < r:
-                    tmp_crop[idx] = val
-                elif idx > r:
-                    tmp_crop[idx - 1] = val
-            self._crop_data = tmp_crop
-
-            tmp_lut = {}
-            for idx, val in self._lut_per_image_data.items():
-                if idx < r:
-                    tmp_lut[idx] = val
-                elif idx > r:
-                    tmp_lut[idx - 1] = val
-            self._lut_per_image_data = tmp_lut
-
+        for item in selected:
+            self._delete_tree_item(item, save_temp=False)
         self._update_count()
         self._auto_load_preview()
         self._auto_save_temp()
 
     def _clear_all(self):
         self._crop_index = None
-        self.file_list.clear()
+        self.file_tree.clear()
         self._files.clear()
         self._crop_data.clear()
         self._lut_per_image_data.clear()
@@ -1428,15 +1809,16 @@ class App(QMainWindow):
         self._auto_save_temp()
 
     def _update_count(self):
-        count = self.file_list.count()
+        count = len(self._get_all_file_items())
         if count == 0:
             self.count_label.setText(self.i18n("no_files"))
         else:
             self.count_label.setText(f"{count} {self.i18n('files_in_list')}")
 
     def _auto_load_preview(self):
-        if self.file_list.count() > 0 and self.file_list.currentRow() < 0:
-            self.file_list.setCurrentRow(0)
+        all_items = self._get_all_file_items()
+        if all_items and not self.file_tree.currentItem():
+            self.file_tree.setCurrentItem(all_items[0])
 
     def _browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, self.i18n("save_to"))
@@ -1446,19 +1828,21 @@ class App(QMainWindow):
     # ---- Crop helpers ----
 
     def _crop_go_prev(self):
-        row = self.file_list.currentRow()
+        all_items = self._get_all_file_items()
+        row = self._get_current_file_index()
         if row > 0:
             self._crop_save_current_settings()
-            self.file_list.setCurrentRow(row - 1)
+            self.file_tree.setCurrentItem(all_items[row - 1])
 
     def _crop_go_next(self):
-        row = self.file_list.currentRow()
-        if row < self.file_list.count() - 1:
+        all_items = self._get_all_file_items()
+        row = self._get_current_file_index()
+        if 0 <= row < len(all_items) - 1:
             self._crop_save_current_settings()
-            self.file_list.setCurrentRow(row + 1)
+            self.file_tree.setCurrentItem(all_items[row + 1])
 
     def _crop_save_current_settings(self):
-        row = self.file_list.currentRow()
+        row = self._get_current_file_index()
         if row < 0:
             return
         self._crop_data[row] = {
@@ -1468,9 +1852,11 @@ class App(QMainWindow):
         }
 
     def _crop_load_image(self, index: int, retain_zoom: bool = False):
-        if index < 0 or index >= self.file_list.count():
+        all_items = self._get_all_file_items()
+        total = len(all_items)
+        if index < 0 or index >= total:
             return
-        if self._crop_index is not None and 0 <= self._crop_index < self.file_list.count():
+        if self._crop_index is not None and 0 <= self._crop_index < total:
             self._crop_data[self._crop_index] = {
                 "x": self.crop_x.value(), "y": self.crop_y.value(),
                 "w": self.crop_w.value(), "h": self.crop_h.value(),
@@ -1479,9 +1865,11 @@ class App(QMainWindow):
         self._crop_index = index
         self._update_crop_nav_label()
         self.crop_prev_btn.setEnabled(index > 0)
-        self.crop_next_btn.setEnabled(index < self.file_list.count() - 1)
+        self.crop_next_btn.setEnabled(index < total - 1)
         try:
-            path = self._files[index]
+            path = all_items[index].data(0, Qt.UserRole)
+            if not path:
+                return
             pil_img = self._get_preview_image(path)
             lut_obj, intensity = self._get_active_lut(index)
             if lut_obj:
@@ -1507,7 +1895,7 @@ class App(QMainWindow):
 
     def _crop_same_load_preview(self, path: str, retain_zoom: bool = False):
         try:
-            row = self.file_list.currentRow()
+            row = self._get_current_file_index()
             pil_img = self._get_preview_image(path)
             lut_obj, intensity = self._get_active_lut(row)
             if lut_obj:
@@ -1518,8 +1906,8 @@ class App(QMainWindow):
             self._log(f"{self.i18n('log_error')}  {e}", "err")
 
     def _update_crop_nav_label(self):
-        row = self.file_list.currentRow()
-        total = self.file_list.count()
+        row = self._get_current_file_index()
+        total = len(self._get_all_file_items())
         if row >= 0 and total > 0:
             self.crop_nav_label.setText(
                 self.i18n("crop_image_n_of", current=row + 1, total=total))
@@ -1585,8 +1973,9 @@ class App(QMainWindow):
 
     def _run_export(self):
         """Run export (format + resize + crop + LUT) in a background thread."""
-        count = self.file_list.count()
-        if count == 0:
+        all_file_items = self._get_all_file_items()
+        total_files = len(all_file_items)
+        if total_files == 0:
             QMessageBox.warning(self, self.i18n("error_title"), self.i18n("error_no_files"))
             return
         out_dir = self.output_dir.text().strip()
@@ -1611,11 +2000,19 @@ class App(QMainWindow):
 
         same_w      = self.crop_same_w.value()
         same_h      = self.crop_same_h.value()
-        anchor_text = self.crop_anchor.currentText()
-        anchor      = "top-left" if anchor_text == self.i18n("crop_top_left") else "center"
+        anchor_map  = {
+            0: "center",
+            1: "top-left",
+            2: "top-right",
+            3: "bottom-left",
+            4: "bottom-right",
+            5: "top-center",
+            6: "bottom-center"
+        }
+        anchor_idx  = self.crop_anchor.currentIndex()
+        anchor      = anchor_map.get(anchor_idx, "center")
 
         crop_data = dict(self._crop_data)
-        files     = [self.file_list.item(i).data(Qt.UserRole) for i in range(count)]
         out_path  = Path(out_dir)
 
         lut_mode = self._lut_mode
@@ -1623,57 +2020,173 @@ class App(QMainWindow):
         lut_same_intensity = self._lut_same_intensity
         lut_per_image_data = dict(self._lut_per_image_data)
 
+        def process_image(src_path: Path, file_idx: int) -> Optional[Image.Image]:
+            is_svg = src_path.suffix.lower() == ".svg"
+            if is_svg:
+                img = open_image(src_path, svg_width=w, svg_height=h, svg_scale=scale)
+            else:
+                img = open_image(src_path)
+                if w or h or scale:
+                    img = do_resize(img, width=w, height=h, scale=scale)
+
+            if is_crop_same:
+                img = do_center_crop(img, same_w, same_h, anchor)
+            elif is_crop_manual:
+                settings = crop_data.get(file_idx)
+                if settings:
+                    cx, cy = settings["x"], settings["y"]
+                    cw, ch = settings["w"], settings["h"]
+                    if cw > 0 and ch > 0:
+                        img = do_crop(img, cx, cy, cw, ch)
+
+            if lut_mode == self.LUT_SAME and lut_same_obj:
+                img = apply_lut(img, lut_same_obj, lut_same_intensity)
+            elif lut_mode == self.LUT_MANUAL:
+                l_data = lut_per_image_data.get(file_idx)
+                if l_data and l_data.get("obj"):
+                    img = apply_lut(img, l_data["obj"], l_data.get("intensity", 1.0))
+            return img
+
         def task():
             ok, err, skipped = 0, 0, 0
             self._signals.progress.emit(0)
-            self._log(f"{self.i18n('log_arrow')}  {len(files)} {self.i18n('log_files_found')}", "inf")
-            for idx, fpath in enumerate(files, 1):
-                src_path = Path(fpath)
-                dst = out_path / (src_path.stem + ext_out)
-                if is_crop_manual:
-                    settings = crop_data.get(idx - 1)
-                    if settings and settings.get("skip"):
-                        skipped += 1
-                        self._signals.progress.emit(int(idx / len(files) * 100))
+            self._log(f"{self.i18n('log_arrow')}  {total_files} {self.i18n('log_files_found')}", "inf")
+
+            root = self.file_tree.invisibleRootItem()
+            top_count = root.childCount()
+            processed_count = 0
+
+            for top_idx in range(top_count):
+                top_item = root.child(top_idx)
+                kind = top_item.data(0, Qt.UserRole + 1)
+
+                if kind == "file":
+                    fpath = top_item.data(0, Qt.UserRole)
+                    if not fpath:
                         continue
-                try:
-                    is_svg = src_path.suffix.lower() == ".svg"
-                    if is_svg:
-                        img = open_image(src_path, svg_width=w, svg_height=h, svg_scale=scale)
+                    src_path = Path(fpath)
+                    dst = out_path / (src_path.stem + ext_out)
+                    try:
+                        file_idx = all_file_items.index(top_item)
+                        if is_crop_manual:
+                            s = crop_data.get(file_idx)
+                            if s and s.get("skip"):
+                                skipped += 1
+                                processed_count += 1
+                                self._signals.progress.emit(int(processed_count / total_files * 100))
+                                continue
+
+                        img = process_image(src_path, file_idx)
+                        if img:
+                            save_image(img, dst, quality=quality, fmt_override=fmt)
+                            self._log(f"{self.i18n('log_success')}  {src_path.name} -> {dst.name}", "ok")
+                            ok += 1
+                    except Exception as e:
+                        self._log(f"{self.i18n('log_error')}  {src_path.name}: {e}", "err")
+                        traceback.print_exc()
+                        err += 1
+                    processed_count += 1
+                    self._signals.progress.emit(int(processed_count / total_files * 100))
+
+                elif kind == "folder":
+                    folder_name = top_item.data(0, Qt.UserRole + 2) or "Folder"
+                    folder_exp = top_item.data(0, Qt.UserRole + 4) or "separate"
+                    merge_layout = top_item.data(0, Qt.UserRole + 5) or "vertical"
+                    f_lut_state = top_item.data(0, Qt.UserRole + 6) or {}
+                    f_crop_state = top_item.data(0, Qt.UserRole + 7) or {}
+
+                    f_lut_enabled = f_lut_state.get("lut_enabled", f_lut_state.get("lut_mode", 0) != 0)
+                    f_lut_mode = f_lut_state.get("lut_mode", lut_mode)
+                    f_lut_same_obj = f_lut_state.get("lut_same_obj", lut_same_obj)
+                    f_lut_same_intensity = f_lut_state.get("lut_same_intensity", lut_same_intensity)
+                    f_lut_per_image_data = f_lut_state.get("lut_per_image_data", lut_per_image_data)
+
+                    f_crop_enabled = f_crop_state.get("crop_enabled", f_crop_state.get("crop_mode", 0) != 0)
+                    f_crop_mode = f_crop_state.get("crop_mode", crop_mode)
+                    f_is_crop_same = (f_crop_mode == self.CROP_SAME)
+                    f_is_crop_manual = (f_crop_mode == self.CROP_MANUAL)
+                    f_same_w = f_crop_state.get("crop_same_w", same_w)
+                    f_same_h = f_crop_state.get("crop_same_h", same_h)
+                    f_anchor_idx = f_crop_state.get("crop_anchor", 0)
+                    f_anchor = anchor_map.get(f_anchor_idx, "center")
+                    f_crop_data = f_crop_state.get("crop_data", crop_data)
+
+                    child_items = [top_item.child(c) for c in range(top_item.childCount())]
+
+                    def process_folder_image(src_path: Path, c_idx: int) -> Optional[Image.Image]:
+                        is_svg = src_path.suffix.lower() == ".svg"
+                        if is_svg:
+                            img = open_image(src_path, svg_width=w, svg_height=h, svg_scale=scale)
+                        else:
+                            img = open_image(src_path)
+                            if w or h or scale:
+                                img = do_resize(img, width=w, height=h, scale=scale)
+
+                        if f_crop_enabled:
+                            if f_is_crop_same:
+                                img = do_center_crop(img, f_same_w, f_same_h, f_anchor)
+                            elif f_is_crop_manual:
+                                settings = f_crop_data.get(c_idx)
+                                if settings:
+                                    cx, cy = settings["x"], settings["y"]
+                                    cw, ch = settings["w"], settings["h"]
+                                    if cw > 0 and ch > 0:
+                                        img = do_crop(img, cx, cy, cw, ch)
+
+                        if f_lut_enabled:
+                            if f_lut_mode == self.LUT_SAME and f_lut_same_obj:
+                                img = apply_lut(img, f_lut_same_obj, f_lut_same_intensity)
+                            elif f_lut_mode == self.LUT_MANUAL:
+                                l_data = f_lut_per_image_data.get(c_idx)
+                                if l_data and l_data.get("obj"):
+                                    img = apply_lut(img, l_data["obj"], l_data.get("intensity", 1.0))
+                        return img
+
+                    if folder_exp == "single_image":
+                        folder_imgs = []
+                        for c_idx, c_item in enumerate(child_items):
+                            fpath = c_item.data(0, Qt.UserRole)
+                            if not fpath:
+                                continue
+                            try:
+                                img = process_folder_image(Path(fpath), c_idx)
+                                if img:
+                                    folder_imgs.append(img)
+                            except Exception as e:
+                                self._log(f"{self.i18n('log_error')}  Layer {Path(fpath).name}: {e}", "err")
+                            processed_count += 1
+                            self._signals.progress.emit(int(processed_count / total_files * 100))
+
+                        if folder_imgs:
+                            try:
+                                merged = composite_folder_images(folder_imgs, layout=merge_layout)
+                                dst = out_path / (folder_name + ext_out)
+                                save_image(merged, dst, quality=quality, fmt_override=fmt)
+                                self._log(f"{self.i18n('log_success')}  Merged Folder [{folder_name}] -> {dst.name}", "ok")
+                                ok += 1
+                            except Exception as e:
+                                self._log(f"{self.i18n('log_error')}  Merging folder [{folder_name}]: {e}", "err")
+                                err += 1
                     else:
-                        img = open_image(src_path)
-                        if w or h or scale:
-                            img = do_resize(img, width=w, height=h, scale=scale)
+                        sub_out = out_path / folder_name
+                        for c_idx, c_item in enumerate(child_items):
+                            fpath = c_item.data(0, Qt.UserRole)
+                            if not fpath:
+                                continue
+                            src_path = Path(fpath)
+                            dst = sub_out / (src_path.stem + ext_out)
+                            try:
+                                img = process_folder_image(src_path, c_idx)
+                                if img:
+                                    save_image(img, dst, quality=quality, fmt_override=fmt)
+                                    self._log(f"{self.i18n('log_success')}  {folder_name}/{src_path.name} -> {dst.name}", "ok")
+                                    ok += 1
+                            except Exception as e:
+                                self._log(f"{self.i18n('log_error')}  {src_path.name}: {e}", "err")
+                                err += 1
+                            processed_count += 1
+                            self._signals.progress.emit(int(processed_count / total_files * 100))
 
-                    if is_crop_same:
-                        img = do_center_crop(img, same_w, same_h, anchor)
-                    elif is_crop_manual:
-                        settings = crop_data.get(idx - 1)
-                        if settings:
-                            cx, cy = settings["x"], settings["y"]
-                            cw, ch = settings["w"], settings["h"]
-                            if cw > 0 and ch > 0:
-                                img = do_crop(img, cx, cy, cw, ch)
-
-                    # Apply LUT if configured
-                    if lut_mode == self.LUT_SAME and lut_same_obj:
-                        img = apply_lut(img, lut_same_obj, lut_same_intensity)
-                    elif lut_mode == self.LUT_MANUAL:
-                        l_data = lut_per_image_data.get(idx - 1)
-                        if l_data and l_data.get("obj"):
-                            img = apply_lut(img, l_data["obj"], l_data.get("intensity", 1.0))
-
-                    save_image(img, dst, quality=quality, fmt_override=fmt)
-                    self._log(
-                        f"{self.i18n('log_success')}  {src_path.name}  {self.i18n('log_arrow')}  {dst.name}  {img.size}",
-                        "ok",
-                    )
-                    ok += 1
-                except Exception as e:
-                    self._log(f"{self.i18n('log_error')}  {src_path.name}: {e}", "err")
-                    traceback.print_exc()
-                    err += 1
-                self._signals.progress.emit(int(idx / len(files) * 100))
             summary = f"{self.i18n('log_completed')} {ok} {self.i18n('log_ok_count')}, {err} {self.i18n('log_err_count')}."
             if skipped:
                 summary += f" ({skipped} skipped)"
@@ -1686,7 +2199,7 @@ class App(QMainWindow):
     # ---- Project management ----
 
     def _auto_save_temp(self):
-        if self._crop_updating or self._lut_updating:
+        if getattr(self, "_importing_in_progress", False) or self._crop_updating or self._lut_updating:
             return
         self._project_dirty = True
         self._autosave_timer.start(300)
@@ -1712,9 +2225,51 @@ class App(QMainWindow):
         self._rebuild_file_menu()
 
     def _get_project_state(self) -> dict:
+        curr_folder = self._get_folder_node_for_item(self.file_tree.currentItem())
+        if curr_folder:
+            self._save_folder_state(curr_folder)
+
+        tree_structure = []
+        root = self.file_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            kind = item.data(0, Qt.UserRole + 1)
+            if kind == "file":
+                p = item.data(0, Qt.UserRole)
+                if p:
+                    tree_structure.append({"type": "file", "path": p})
+            elif kind == "folder":
+                f_name = item.data(0, Qt.UserRole + 2) or "Folder"
+                f_mode = item.data(0, Qt.UserRole + 3) or "same"
+                f_exp = item.data(0, Qt.UserRole + 4) or "separate"
+                f_layout = item.data(0, Qt.UserRole + 5) or "vertical"
+                f_lut = dict(item.data(0, Qt.UserRole + 6) or {})
+                f_crop = dict(item.data(0, Qt.UserRole + 7) or {})
+
+                if "lut_same_obj" in f_lut:
+                    del f_lut["lut_same_obj"]
+
+                children = []
+                for c in range(item.childCount()):
+                    child = item.child(c)
+                    cp = child.data(0, Qt.UserRole)
+                    if cp:
+                        children.append({"type": "file", "path": cp})
+                tree_structure.append({
+                    "type": "folder",
+                    "name": f_name,
+                    "mode": f_mode,
+                    "export_mode": f_exp,
+                    "merge_layout": f_layout,
+                    "lut_state": f_lut,
+                    "crop_state": f_crop,
+                    "children": children
+                })
+
         return {
-            "version": "1.2",
-            "files": self._files,
+            "version": "1.4",
+            "files": self._get_all_file_paths(),
+            "tree_structure": tree_structure,
             "crop_data": {str(k): v for k, v in self._crop_data.items()},
             "lut_state": {
                 "lut_mode": self._lut_mode,
@@ -1738,8 +2293,8 @@ class App(QMainWindow):
                 "output_dir":      self.output_dir.text(),
                 "convert_width":   self.conv_width.value(),
                 "convert_height":  self.conv_height.value(),
-                "convert_scale":   self.conv_scale.value(),
-                "crop_mode":       self.crop_mode_group.checkedId(),
+                "crop_enabled":    self.crop_enable_check.isChecked(),
+                "lut_enabled":     self.lut_enable_check.isChecked(),
                 "crop_same_w":     self.crop_same_w.value(),
                 "crop_same_h":     self.crop_same_h.value(),
                 "crop_anchor":     self.crop_anchor.currentIndex(),
@@ -1751,12 +2306,63 @@ class App(QMainWindow):
         self._crop_updating = True
         self._lut_updating = True
         self._clear_all()
+
+        tree_struct = state.get("tree_structure")
         missing_files = []
-        for f in state.get("files", []):
-            if Path(f).exists():
-                self._add_path(f)
-            else:
-                missing_files.append(f)
+
+        if tree_struct:
+            for node in tree_struct:
+                if node.get("type") == "file":
+                    p = node.get("path")
+                    if p and Path(p).exists():
+                        item = self._create_file_tree_item(p)
+                        self.file_tree.addTopLevelItem(item)
+                        self._files.append(p)
+                    elif p:
+                        missing_files.append(p)
+                elif node.get("type") == "folder":
+                    f_item = QTreeWidgetItem()
+                    f_item.setData(0, Qt.UserRole + 1, "folder")
+                    f_item.setData(0, Qt.UserRole + 2, node.get("name", "Folder"))
+                    f_item.setData(0, Qt.UserRole + 3, node.get("mode", "same"))
+                    f_item.setData(0, Qt.UserRole + 4, node.get("export_mode", "separate"))
+                    f_item.setData(0, Qt.UserRole + 5, node.get("merge_layout", "vertical"))
+
+                    f_lut = node.get("lut_state", {})
+                    if f_lut.get("lut_same_file") and Path(f_lut["lut_same_file"]).exists():
+                        try: f_lut["lut_same_obj"] = load_lut_file(f_lut["lut_same_file"])
+                        except Exception: pass
+                    elif f_lut.get("lut_same_preset") and f_lut["lut_same_preset"] in PRESET_LUT_SETTINGS:
+                        f_lut["lut_same_obj"] = get_preset_lut(f_lut["lut_same_preset"])
+                    elif f_lut.get("lut_same_settings"):
+                        s = dict(f_lut["lut_same_settings"])
+                        f_lut["lut_same_obj"] = generate_lut_from_settings(**s)
+
+                    f_item.setData(0, Qt.UserRole + 6, f_lut)
+                    f_item.setData(0, Qt.UserRole + 7, node.get("crop_state", {}))
+
+                    for child in node.get("children", []):
+                        cp = child.get("path")
+                        if cp and Path(cp).exists():
+                            c_item = self._create_file_tree_item(cp)
+                            f_item.addChild(c_item)
+                            self._files.append(cp)
+                        elif cp:
+                            missing_files.append(cp)
+                    self._update_folder_item_display(f_item)
+                    self.file_tree.addTopLevelItem(f_item)
+                    f_item.setExpanded(True)
+        else:
+            for f in state.get("files", []):
+                if Path(f).exists():
+                    item = self._create_file_tree_item(f)
+                    self.file_tree.addTopLevelItem(item)
+                    self._files.append(f)
+                else:
+                    missing_files.append(f)
+
+        self._update_count()
+        self._auto_load_preview()
         self._update_count()
 
         self._crop_data = {}
@@ -1820,14 +2426,6 @@ class App(QMainWindow):
             except ValueError:
                 pass
 
-        radio_lut_map = {
-            self.LUT_NONE: self.lut_radio_none,
-            self.LUT_SAME: self.lut_radio_same,
-            self.LUT_MANUAL: self.lut_radio_manual,
-        }
-        radio_lut_map.get(self._lut_mode, self.lut_radio_none).setChecked(True)
-        self._on_lut_mode_changed(self._lut_mode, True)
-
         settings = state.get("settings", {})
         if "convert_format"  in settings: self.conv_format.setCurrentText(settings["convert_format"])
         if "convert_quality" in settings: self.conv_quality_slider.setValue(settings["convert_quality"])
@@ -1844,20 +2442,11 @@ class App(QMainWindow):
         if "convert_height" in settings: self.conv_height.setValue(settings["convert_height"])
         if "convert_scale"  in settings: self.conv_scale.setValue(settings["convert_scale"])
 
-        if "crop_mode" in settings:
-            crop_mode = int(settings["crop_mode"])
-        elif settings.get("crop_is_manual", False):
-            crop_mode = self.CROP_MANUAL
-        else:
-            crop_mode = self.CROP_NONE
+        crop_enabled = settings.get("crop_enabled", settings.get("crop_mode", 0) != 0)
+        self.crop_enable_check.setChecked(crop_enabled)
 
-        radio_map = {
-            self.CROP_NONE: self.crop_radio_none,
-            self.CROP_SAME: self.crop_radio_same,
-            self.CROP_MANUAL: self.crop_radio_manual,
-        }
-        radio_map.get(crop_mode, self.crop_radio_none).setChecked(True)
-        self._on_crop_mode_changed(crop_mode, True)
+        lut_enabled = settings.get("lut_enabled", settings.get("lut_mode", 0) != 0)
+        self.lut_enable_check.setChecked(lut_enabled)
 
         if "crop_same_w" in settings: self.crop_same_w.setValue(settings["crop_same_w"])
         if "crop_same_h" in settings: self.crop_same_h.setValue(settings["crop_same_h"])
@@ -1866,10 +2455,8 @@ class App(QMainWindow):
 
         self._crop_updating = False
         self._lut_updating = False
-        self._auto_load_preview()
-        if crop_mode == self.CROP_SAME and self.file_list.currentRow() >= 0:
-            path = self.file_list.item(self.file_list.currentRow()).data(Qt.UserRole)
-            self._crop_same_load_preview(path)
+        self._update_crop_visibility()
+        self._update_lut_visibility()
 
         if missing_files:
             QMessageBox.warning(
