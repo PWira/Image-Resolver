@@ -2,7 +2,7 @@
 
 A comprehensive GUI application for quick image format conversion and resizing using Python and PySide6 (Qt for Python).
 
-# NOTE
+### NOTE
 - All branch other than main branch is unmaintained, Use Main Branch Instead
 
 ## Features
