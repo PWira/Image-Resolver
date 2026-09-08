@@ -119,6 +119,10 @@ TRANSLATIONS = {
         "error_no_files": "Please add some images first.",
         "error_no_output": "Please pick a folder to save your images.",
         "error_no_crop": "Please set a crop area first.",
+        "custom_filename": "Custom File Name (optional)",
+        "custom_filename_placeholder": "Original name (e.g. photo)",
+        "overwrite_warning_title": "Overwrite Existing Files?",
+        "overwrite_warning_msg": "The following {count} file(s) already exist in the target folder:\n\n{files}\n\nDo you want to overwrite them?",
         "info_done": "Done!",
         "info_processing": "Working...",
 
@@ -279,6 +283,10 @@ TRANSLATIONS = {
         "error_no_files": "Tambahkan gambar terlebih dahulu.",
         "error_no_output": "Pilih folder untuk menyimpan gambar.",
         "error_no_crop": "Tentukan area potong terlebih dahulu.",
+        "custom_filename": "Nama File Kustom (opsional)",
+        "custom_filename_placeholder": "Nama asli (cth: foto)",
+        "overwrite_warning_title": "Timpa File yang Ada?",
+        "overwrite_warning_msg": "{count} file berikut sudah ada di folder tujuan:\n\n{files}\n\nApakah Anda ingin menimpa file tersebut?",
         "info_done": "Selesai!",
         "info_processing": "Memproses...",
 

@@ -2,6 +2,9 @@
 
 A comprehensive GUI application for quick image format conversion and resizing using Python and PySide6 (Qt for Python).
 
+# NOTE
+- All branch other than main branch is unmaintained, Use Main Branch Instead
+
 ## Features
 
 - **Format Conversion**: Convert between 16+ image formats (PNG, JPEG, WEBP, TIFF, BMP, GIF, ICO, ICNS, JPEG2000, TGA, PCX, PPM, SGI, AVIF, QOI, DDS)

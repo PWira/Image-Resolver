@@ -245,6 +245,7 @@ class App(QMainWindow):
         self.setStyleSheet(theme.get_stylesheet())
 
         self._files: List[str] = []
+        self._crop_mode = self.CROP_NONE
         self._crop_data: Dict[int, dict] = {}
         self._crop_updating = True
         self._crop_index: Optional[int] = None
@@ -346,6 +347,7 @@ class App(QMainWindow):
 
         # Connect auto-save signals
         self.output_dir.textChanged.connect(self._auto_save_temp)
+        self.output_filename_edit.textChanged.connect(self._auto_save_temp)
         self.conv_format.currentIndexChanged.connect(self._auto_save_temp)
         self.conv_quality_slider.valueChanged.connect(self._auto_save_temp)
         self.conv_width.valueChanged.connect(self._auto_save_temp)
@@ -618,6 +620,8 @@ class App(QMainWindow):
         self.lbl_export_section.setText(self.i18n("export_section"))
         self.lbl_save_as.setText(self.i18n("save_as"))
         self.lbl_quality.setText(self.i18n("picture_quality"))
+        self.lbl_custom_filename.setText(self.i18n("custom_filename"))
+        self.output_filename_edit.setPlaceholderText(self.i18n("custom_filename_placeholder"))
         self.lbl_save_to.setText(self.i18n("save_to"))
         self.btn_browse_out.setText(self.i18n("browse"))
         self.btn_export.setText("EXPORT")
@@ -682,11 +686,7 @@ class App(QMainWindow):
         self._signals.log.emit(msg, tag)
 
     def _start_progress_dialog(self, title_text):
-        for sig in (self._signals.log, self._signals.progress, self._signals.finished):
-            try:
-                sig.disconnect()
-            except Exception:
-                pass
+        self._signals = _WorkerSignals()
         dlg = ProgressDialog(self, title_text=title_text)
         self._signals.log.connect(dlg.append_log)
         self._signals.progress.connect(dlg.set_progress)
@@ -1077,6 +1077,13 @@ class App(QMainWindow):
         q_row.addWidget(self.conv_quality_label)
         exp_layout.addLayout(q_row)
 
+        # Custom Filename
+        self.lbl_custom_filename = QLabel()
+        exp_layout.addWidget(self.lbl_custom_filename)
+        self.output_filename_edit = QLineEdit()
+        self.output_filename_edit.setClearButtonEnabled(True)
+        exp_layout.addWidget(self.output_filename_edit)
+
         # Output directory
         self.lbl_save_to = QLabel()
         exp_layout.addWidget(self.lbl_save_to)
@@ -1403,7 +1410,7 @@ class App(QMainWindow):
         if not path:
             return
         row = self._get_current_file_index()
-        mode = self.crop_mode_group.checkedId()
+        mode = self._crop_mode
         if mode == self.CROP_NONE:
             self._load_convert_preview(path, retain_zoom=retain_zoom)
         elif mode == self.CROP_SAME:
@@ -1983,7 +1990,7 @@ class App(QMainWindow):
             QMessageBox.warning(self, self.i18n("error_title"), self.i18n("error_no_output"))
             return
 
-        if self.crop_radio_manual.isChecked():
+        if self._crop_mode == self.CROP_MANUAL:
             self._crop_save_current_settings()
 
         fmt       = self.conv_format.currentText()
@@ -1994,7 +2001,7 @@ class App(QMainWindow):
         scale_pct = self.conv_scale.value() or None
         scale     = (scale_pct / 100) if scale_pct else None
 
-        crop_mode      = self.crop_mode_group.checkedId()
+        crop_mode      = self._crop_mode
         is_crop_same   = (crop_mode == self.CROP_SAME)
         is_crop_manual = (crop_mode == self.CROP_MANUAL)
 
@@ -2019,6 +2026,96 @@ class App(QMainWindow):
         lut_same_obj = self._lut_same_obj
         lut_same_intensity = self._lut_same_intensity
         lut_per_image_data = dict(self._lut_per_image_data)
+
+        custom_raw = self.output_filename_edit.text().strip()
+        if custom_raw:
+            if custom_raw.lower().endswith(ext_out.lower()):
+                custom_base = custom_raw[:-len(ext_out)]
+            else:
+                custom_base = Path(custom_raw).stem or custom_raw
+        else:
+            custom_base = None
+
+        root = self.file_tree.invisibleRootItem()
+        top_count = root.childCount()
+
+        # Pre-plan destination paths for all outputs to check for file overwrites
+        dest_map = {}  # item or (item, idx) -> Path
+        all_destinations = []
+        top_file_items = [root.child(i) for i in range(top_count) if root.child(i).data(0, Qt.UserRole + 1) == "file"]
+        top_file_counter = 0
+
+        for top_idx in range(top_count):
+            top_item = root.child(top_idx)
+            kind = top_item.data(0, Qt.UserRole + 1)
+
+            if kind == "file":
+                fpath = top_item.data(0, Qt.UserRole)
+                if not fpath:
+                    continue
+                src_path = Path(fpath)
+                top_file_counter += 1
+                if custom_base:
+                    if len(top_file_items) == 1 and top_count == 1:
+                        dest_name = f"{custom_base}{ext_out}"
+                    else:
+                        dest_name = f"{custom_base}_{top_file_counter}{ext_out}"
+                else:
+                    dest_name = f"{src_path.stem}{ext_out}"
+                
+                dst = out_path / dest_name
+                dest_map[top_item] = dst
+                all_destinations.append(dst)
+
+            elif kind == "folder":
+                folder_name = top_item.data(0, Qt.UserRole + 2) or "Folder"
+                folder_exp = top_item.data(0, Qt.UserRole + 4) or "separate"
+                child_count = top_item.childCount()
+
+                if folder_exp == "single_image":
+                    if custom_base and top_count == 1:
+                        dest_name = f"{custom_base}{ext_out}"
+                    else:
+                        dest_name = f"{folder_name}{ext_out}"
+                    dst = out_path / dest_name
+                    dest_map[top_item] = dst
+                    all_destinations.append(dst)
+                else:
+                    sub_out = out_path / folder_name
+                    for c_idx in range(child_count):
+                        c_item = top_item.child(c_idx)
+                        fpath = c_item.data(0, Qt.UserRole)
+                        if not fpath:
+                            continue
+                        src_path = Path(fpath)
+                        if custom_base:
+                            dest_name = f"{custom_base}_{c_idx + 1}{ext_out}"
+                        else:
+                            dest_name = f"{src_path.stem}{ext_out}"
+                        dst = sub_out / dest_name
+                        dest_map[(top_item, c_idx)] = dst
+                        all_destinations.append(dst)
+
+        # Overwrite confirmation popup
+        existing_files = [p for p in all_destinations if p.exists()]
+        if existing_files:
+            num_existing = len(existing_files)
+            sample_names = [p.name for p in existing_files[:5]]
+            if num_existing > 5:
+                sample_str = "\n".join(f"• {name}" for name in sample_names) + f"\n• ... and {num_existing - 5} more"
+            else:
+                sample_str = "\n".join(f"• {name}" for name in sample_names)
+            
+            msg = self.i18n("overwrite_warning_msg", count=num_existing, files=sample_str)
+            reply = QMessageBox.question(
+                self,
+                self.i18n("overwrite_warning_title"),
+                msg,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
 
         def process_image(src_path: Path, file_idx: int) -> Optional[Image.Image]:
             is_svg = src_path.suffix.lower() == ".svg"
@@ -2052,8 +2149,6 @@ class App(QMainWindow):
             self._signals.progress.emit(0)
             self._log(f"{self.i18n('log_arrow')}  {total_files} {self.i18n('log_files_found')}", "inf")
 
-            root = self.file_tree.invisibleRootItem()
-            top_count = root.childCount()
             processed_count = 0
 
             for top_idx in range(top_count):
@@ -2065,7 +2160,7 @@ class App(QMainWindow):
                     if not fpath:
                         continue
                     src_path = Path(fpath)
-                    dst = out_path / (src_path.stem + ext_out)
+                    dst = dest_map.get(top_item, out_path / (src_path.stem + ext_out))
                     try:
                         file_idx = all_file_items.index(top_item)
                         if is_crop_manual:
@@ -2160,7 +2255,7 @@ class App(QMainWindow):
                         if folder_imgs:
                             try:
                                 merged = composite_folder_images(folder_imgs, layout=merge_layout)
-                                dst = out_path / (folder_name + ext_out)
+                                dst = dest_map.get(top_item, out_path / (folder_name + ext_out))
                                 save_image(merged, dst, quality=quality, fmt_override=fmt)
                                 self._log(f"{self.i18n('log_success')}  Merged Folder [{folder_name}] -> {dst.name}", "ok")
                                 ok += 1
@@ -2168,13 +2263,12 @@ class App(QMainWindow):
                                 self._log(f"{self.i18n('log_error')}  Merging folder [{folder_name}]: {e}", "err")
                                 err += 1
                     else:
-                        sub_out = out_path / folder_name
                         for c_idx, c_item in enumerate(child_items):
                             fpath = c_item.data(0, Qt.UserRole)
                             if not fpath:
                                 continue
                             src_path = Path(fpath)
-                            dst = sub_out / (src_path.stem + ext_out)
+                            dst = dest_map.get((top_item, c_idx), out_path / folder_name / (src_path.stem + ext_out))
                             try:
                                 img = process_folder_image(src_path, c_idx)
                                 if img:
@@ -2290,6 +2384,7 @@ class App(QMainWindow):
             "settings": {
                 "convert_format":  self.conv_format.currentText(),
                 "convert_quality": self.conv_quality_slider.value(),
+                "custom_filename": self.output_filename_edit.text(),
                 "output_dir":      self.output_dir.text(),
                 "convert_width":   self.conv_width.value(),
                 "convert_height":  self.conv_height.value(),
@@ -2430,6 +2525,9 @@ class App(QMainWindow):
         if "convert_format"  in settings: self.conv_format.setCurrentText(settings["convert_format"])
         if "convert_quality" in settings: self.conv_quality_slider.setValue(settings["convert_quality"])
 
+        if "custom_filename" in settings:
+            self.output_filename_edit.setText(settings["custom_filename"])
+
         out_dir = (
             settings.get("output_dir")
             or settings.get("convert_output_dir")
@@ -2468,7 +2566,7 @@ class App(QMainWindow):
                 self._log(f"{self.i18n('log_error')} File not found: {f}", "err")
 
     def _save_project(self):
-        if self.crop_radio_manual.isChecked():
+        if self._crop_mode == self.CROP_MANUAL:
             self._crop_save_current_settings()
         filename, _ = QFileDialog.getSaveFileName(
             self, self.i18n("save_project"), "", self.i18n("project_files"))
